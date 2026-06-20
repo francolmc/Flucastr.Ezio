@@ -69,6 +69,13 @@ export class ConfigService {
     const activeConfig = config ?? ConfigService.load()
     const { provider, name } = activeConfig.model
 
+    const validProviders = ['ollama', 'anthropic', 'google'] as const
+    if (!validProviders.includes(provider)) {
+      throw new Error(
+        `Invalid provider "${provider}". Supported providers are: ${validProviders.join(', ')}`
+      )
+    }
+
     const providerConfig = activeConfig.providers[provider]
 
     if (!providerConfig) {
