@@ -1,0 +1,21 @@
+{
+  "name": "@ezio/cli",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ezio": "./dist/chat.js"
+  },
+  "scripts": {
+    "build": "tsup src/chat.ts --format esm",
+    "dev": "tsx src/chat.ts"
+  },
+  "dependencies": {
+    "@ezio/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "tsx": "^4.16.5",
+    "tsup": "^8.2.4"
+  }
+}
