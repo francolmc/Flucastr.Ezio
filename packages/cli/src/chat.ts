@@ -8,42 +8,60 @@ const rl = createInterface({
   output: process.stdout,
 });
 
+const EXIT_COMMAND = 'exit'
+
 export async function handleLine(line: string, client: EzioClient): Promise<string | null> {
   const trimmed = line.trim().toLowerCase();
-  if (trimmed === 'exit') {
+  if (trimmed === EXIT_COMMAND) {
     return null;
   }
   if (trimmed === '') {
     return '';
   }
-  const response = await client.send(line);
-  return response;
+  return client.send(line);
+}
+
+function printError(error: unknown, context: string): void {
+  if (error instanceof Error) {
+    console.error(`Error: ${error.message}`);
+  } else {
+    console.error(`Error desconocido ${context}`);
+  }
 }
 
 async function main() {
   console.log('Ezio CLI — escribe \'exit\' para salir');
-  const client = new EzioClient();
+  let client: EzioClient;
+  try {
+    client = new EzioClient();
+  } catch (error) {
+    printError(error, 'al inicializar');
+    rl.close();
+    return;
+  }
 
   while (true) {
-    const line = await rl.question('> ');
+    let line: string;
+    try {
+      line = await rl.question('> ');
+    } catch {
+      break;
+    }
+
     try {
       const result = await handleLine(line, client);
       if (result === null) {
-        console.log('Adiós.');
         break;
       }
       if (result !== '') {
         console.log(`Ezio: ${result}`);
       }
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`);
-      } else {
-        console.error('Error desconocido');
-      }
+      printError(error, '');
     }
   }
 
+  console.log('Adiós.');
   rl.close();
 }
 

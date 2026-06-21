@@ -1,6 +1,6 @@
-import * as fs from 'fs'
-import * as os from 'os'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import type { ModelAdapter } from '../adapters/ModelAdapter'
 import { OllamaAdapter } from '../adapters/OllamaAdapter'
 import { AnthropicAdapter } from '../adapters/AnthropicAdapter'
@@ -18,13 +18,55 @@ export interface EzioConfig {
 const SUPPORTED_PROVIDERS = ['ollama', 'anthropic', 'google'] as const
 
 const EXAMPLE_CONFIG = JSON.stringify({
-  model: { provider: 'ollama', name: 'qwen3:4b' },
+  model: { provider: 'ollama', name: 'model-name' },
   providers: {
-    ollama: { baseUrl: 'http://192.168.1.202:11434' },
+    ollama: { baseUrl: 'http://localhost:11434' },
     anthropic: { apiKey: 'sk-ant-...' },
     google: { apiKey: '...' }
   }
 }, null, 2)
+
+const PROVIDER_MISSING_HINTS: Record<string, string> = {
+  ollama: '"baseUrl"',
+  anthropic: '"apiKey"',
+  google: '"apiKey"'
+}
+
+type ProviderConfig = EzioConfig['providers'][keyof EzioConfig['providers']]
+
+function createAdapter(
+  provider: 'ollama',
+  config: { baseUrl: string },
+  name: string
+): OllamaAdapter
+function createAdapter(
+  provider: 'anthropic',
+  config: { apiKey: string },
+  name: string
+): AnthropicAdapter
+function createAdapter(
+  provider: 'google',
+  config: { apiKey: string },
+  name: string
+): GoogleAdapter
+function createAdapter(
+  provider: string,
+  config: ProviderConfig,
+  name: string
+): ModelAdapter {
+  switch (provider) {
+    case 'ollama':
+      return new OllamaAdapter({ baseUrl: (config as { baseUrl: string }).baseUrl, model: name })
+    case 'anthropic':
+      return new AnthropicAdapter({ apiKey: (config as { apiKey: string }).apiKey, model: name })
+    case 'google':
+      return new GoogleAdapter({ apiKey: (config as { apiKey: string }).apiKey, model: name })
+    default:
+      throw new Error(
+        `Unsupported provider '${provider}'. Supported providers: ${SUPPORTED_PROVIDERS.join(', ')}`
+      )
+  }
+}
 
 export class ConfigService {
   static load(configPath?: string): EzioConfig {
@@ -44,49 +86,17 @@ export class ConfigService {
 
   static getActiveAdapter(config?: EzioConfig): ModelAdapter {
     const cfg = config ?? ConfigService.load()
-
     const { provider, name } = cfg.model
-
     const providerConfig = cfg.providers[provider]
 
     if (!providerConfig) {
-      let missingMessage = ''
-      if (provider === 'ollama') {
-        missingMessage = `Add { "baseUrl": "..." } under providers.ollama in ${config ? 'the provided config' : '~/.ezio/config.json'}`
-      } else if (provider === 'anthropic') {
-        missingMessage = `Add { "apiKey": "..." } under providers.anthropic in ${config ? 'the provided config' : '~/.ezio/config.json'}`
-      } else if (provider === 'google') {
-        missingMessage = `Add { "apiKey": "..." } under providers.google in ${config ? 'the provided config' : '~/.ezio/config.json'}`
-      }
-
+      const hint = PROVIDER_MISSING_HINTS[provider] ?? 'config'
+      const location = config ? 'the provided config' : '~/.ezio/config.json'
       throw new Error(
-        `Missing '${provider}' config in providers. ${missingMessage}`
+        `Missing '${provider}' config in providers. Add { ${hint}: "..." } under providers.${provider} in ${location}`
       )
     }
 
-    if (provider === 'ollama') {
-      return new OllamaAdapter({
-        baseUrl: providerConfig.baseUrl,
-        model: name
-      })
-    }
-
-    if (provider === 'anthropic') {
-      return new AnthropicAdapter({
-        apiKey: providerConfig.apiKey,
-        model: name
-      })
-    }
-
-    if (provider === 'google') {
-      return new GoogleAdapter({
-        apiKey: providerConfig.apiKey,
-        model: name
-      })
-    }
-
-    throw new Error(
-      `Unsupported provider '${provider}'. Supported providers: ${SUPPORTED_PROVIDERS.join(', ')}`
-    )
+    return createAdapter(provider, providerConfig, name)
   }
 }
