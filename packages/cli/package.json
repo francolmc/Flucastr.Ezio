@@ -1,0 +1,25 @@
+{
+  "name": "@ezio/cli",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ezio": "./dist/chat.js"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "tsx src/chat.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ezio/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "tsx": "^4.16.5",
+    "vite": "^5.4.0",
+    "vitest": "^2.0.5",
+    "@types/node": "^22.5.0"
+  }
+}
