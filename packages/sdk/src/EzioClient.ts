@@ -4,14 +4,29 @@
 // this package will be relicensed to Apache 2.0.
 
 import { Core } from '@ezio/core'
-import type { ChatMessage } from '@ezio/core'
+import type { ChatMessage, ResolutionResult, UserValidationRequest, ProgressEvent } from '@ezio/core'
+
+export interface EzioClientConfig {
+  userValidationHandler?: (request: UserValidationRequest) => string | Promise<string>
+  progressHandler?: (event: ProgressEvent) => void
+}
 
 export class EzioClient {
   private history: ChatMessage[] = []
   private core: Core
+  private userValidationHandler: (request: UserValidationRequest) => Promise<string>
+  private progressHandler?: (event: ProgressEvent) => void
 
-  constructor() {
+  constructor(config: EzioClientConfig = {}) {
     this.core = new Core()
+    this.progressHandler = config.progressHandler
+    this.userValidationHandler = async (request: UserValidationRequest) => {
+      if (config.userValidationHandler) {
+        const result = config.userValidationHandler(request)
+        return typeof result === 'string' ? result : await result
+      }
+      throw new Error('No user validation handler configured')
+    }
   }
 
   async send(message: string): Promise<string> {
@@ -19,6 +34,13 @@ export class EzioClient {
     this.history.push({ role: 'user', content: message })
     this.history.push({ role: 'assistant', content: response })
     return response
+  }
+
+  async resolve(message: string): Promise<ResolutionResult> {
+    return this.core.resolve(message, {
+      onUserValidation: this.userValidationHandler,
+      onProgress: this.progressHandler
+    })
   }
 
   getHistory(): ChatMessage[] {

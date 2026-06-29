@@ -5,6 +5,14 @@ import type { ModelAdapter } from '../adapters/ModelAdapter'
 import { OllamaAdapter } from '../adapters/OllamaAdapter'
 import { AnthropicAdapter } from '../adapters/AnthropicAdapter'
 import { GoogleAdapter } from '../adapters/GoogleAdapter'
+import type { ModelSize } from '../reasoning/types'
+
+export interface ReasoningConfig {
+  modelSize: ModelSize
+  maxPlanSteps: number
+  maxValidationIterations: number
+  twoPhaseReasoning: boolean
+}
 
 export interface EzioConfig {
   model: { provider: 'ollama' | 'anthropic' | 'google'; name: string }
@@ -13,6 +21,7 @@ export interface EzioConfig {
     anthropic?: { apiKey: string }
     google?: { apiKey: string }
   }
+  reasoning?: Partial<ReasoningConfig>
 }
 
 const SUPPORTED_PROVIDERS = ['ollama', 'anthropic', 'google'] as const
@@ -23,6 +32,12 @@ const EXAMPLE_CONFIG = JSON.stringify({
     ollama: { baseUrl: 'http://localhost:11434' },
     anthropic: { apiKey: 'sk-ant-...' },
     google: { apiKey: '...' }
+  },
+  reasoning: {
+    modelSize: 'medium',
+    maxPlanSteps: 5,
+    maxValidationIterations: 3,
+    twoPhaseReasoning: true
   }
 }, null, 2)
 

@@ -1,63 +1,183 @@
 #!/usr/bin/env node
 
 import { createInterface } from 'node:readline/promises';
-import { EzioClient } from '@ezio/sdk';
+import { EzioClient, type EzioClientConfig } from '@ezio/sdk';
+import type { UserValidationRequest, ProgressEvent } from '@ezio/core';
 
 const rl = createInterface({
   input: process.stdin,
   output: process.stdout,
 });
 
+const PROMPT = 'EZIO > '
 const EXIT_COMMAND = 'exit'
+const VERBOSE_COMMAND = '/verbose'
+const QUIET_COMMAND = '/quiet'
+const HELP_COMMAND = '/help'
 
-export async function handleLine(line: string, client: EzioClient): Promise<string | null> {
-  const trimmed = line.trim().toLowerCase();
-  if (trimmed === EXIT_COMMAND) {
-    return null;
+const helpText = `
+Comandos disponibles:
+  /verbose    - Mostrar razonamiento paso a paso
+  /quiet      - Solo mostrar resultado final (default)
+  /help       - Mostrar esta ayuda
+  exit        - Salir
+
+El razonamiento Polya se aplica automaticamente cuando el modelo
+detecta que el problema es complejo.
+`.trim()
+
+let verbose = false
+
+function printProgress(event: ProgressEvent): void {
+  if (!verbose) return
+
+  switch (event.type) {
+    case 'analyzing':
+      console.log(`\n[1/5] ${event.message}`)
+      if (event.complexity) {
+        console.log(`    → ${event.complexity.isComplex ? '⚠️ COMPLEJO' : '✓ Simple'}`)
+        console.log(`    → Razón: ${event.complexity.reason}`)
+      }
+      break
+
+    case 'planning':
+      console.log(`\n[2/5] ${event.message}`)
+      if (event.plan) {
+        console.log(`    → ${event.plan.summary}`)
+        event.plan.steps.forEach(step => {
+          console.log(`    ${step.order}. ${step.description}`)
+        })
+      }
+      break
+
+    case 'validating':
+      console.log(`\n[3/5] ${event.message}`)
+      if (event.plan) {
+        console.log('    Plan:')
+        event.plan.steps.forEach(step => {
+          console.log(`      ${step.order}. ${step.description}`)
+        })
+      }
+      break
+
+    case 'user_input_required':
+      console.log('\n' + '='.repeat(50))
+      console.log('📋 VALIDACIÓN REQUERIDA')
+      if (event.plan) {
+        console.log('\nPlan propuesto:')
+        event.plan.steps.forEach(step => {
+          console.log(`  ${step.order}. ${step.description}`)
+        })
+      }
+      console.log(`\n${event.message}`)
+      break
+
+    case 'executing':
+      console.log(`\n[4/5] ${event.message}`)
+      if (event.plan) {
+        console.log('    Ejecutando:')
+        event.plan.steps.forEach(step => {
+          console.log(`    → ${step.description}`)
+        })
+      }
+      if (event.finalOutput) {
+        console.log(`\n    Output: ${event.finalOutput.slice(0, 100)}...`)
+      }
+      break
+
+    case 'verifying':
+      console.log(`\n[5/5] ${event.message}`)
+      break
+
+    case 'complete':
+      console.log('\n' + '='.repeat(50))
+      console.log('✅ VERIFICACIÓN COMPLETA')
+      if (event.verification) {
+        console.log(`\nEstado: ${event.verification.isVerified ? '✓ VERIFICADO' : '⚠️ CON PROBLEMAS'}`)
+        console.log(`Reporte: ${event.verification.verificationReport}`)
+      }
+      console.log('='.repeat(50))
+      break
   }
-  if (trimmed === '') {
-    return '';
-  }
-  return client.send(line);
 }
 
-function printError(error: unknown, context: string): void {
-  if (error instanceof Error) {
-    console.error(`Error: ${error.message}`);
-  } else {
-    console.error(`Error desconocido ${context}`);
+async function handleUserValidation(request: UserValidationRequest): Promise<string> {
+  console.log('\n--- Plan ---')
+  if (request.plan) {
+    request.plan.steps.forEach(step => {
+      console.log(`  ${step.order}. ${step.description}`)
+    })
   }
+  console.log(`\n${request.message || '¿Apruebas este plan?'}`)
+
+  const response = await rl.question(`${PROMPT} `)
+  return response
 }
 
 async function main() {
-  console.log('Ezio CLI — escribe \'exit\' para salir');
+  console.log('Ezio CLI — escribe /help, /verbose o /quiet, exit para salir\n')
+
+  const clientConfig: EzioClientConfig = {
+    userValidationHandler: handleUserValidation,
+    progressHandler: printProgress
+  }
+
   let client: EzioClient;
+
   try {
-    client = new EzioClient();
+    client = new EzioClient(clientConfig);
   } catch (error) {
-    printError(error, 'al inicializar');
+    console.error('Error al inicializar:', error instanceof Error ? error.message : error);
     rl.close();
     return;
   }
 
+  console.log(`Modo: ${verbose ? 'VERBOSE' : 'QUIET'} (usa /verbose para ver razonamiento)\n`);
+
   while (true) {
     let line: string;
     try {
-      line = await rl.question('> ');
+      line = await rl.question(PROMPT);
     } catch {
       break;
     }
 
+    const trimmed = line.trim().toLowerCase();
+
+    if (trimmed === EXIT_COMMAND) {
+      break;
+    }
+
+    if (trimmed === HELP_COMMAND) {
+      console.log(helpText + '\n');
+      continue;
+    }
+
+    if (trimmed === VERBOSE_COMMAND) {
+      verbose = true;
+      console.log(`Modo: VERBOSE (usa /quiet para solo resultado final)\n`);
+      continue;
+    }
+
+    if (trimmed === QUIET_COMMAND) {
+      verbose = false;
+      console.log(`Modo: QUIET (usa /verbose para ver razonamiento)\n`);
+      continue;
+    }
+
+    if (trimmed === '') {
+      continue;
+    }
+
     try {
-      const result = await handleLine(line, client);
-      if (result === null) {
-        break;
+      const result = await client.resolve(line)
+
+      if (!verbose) {
+        console.log('\n' + result.execution?.finalOutput || 'Sin resultado')
       }
-      if (result !== '') {
-        console.log(`Ezio: ${result}`);
-      }
+      console.log()
     } catch (error) {
-      printError(error, '');
+      console.error('Error:', error instanceof Error ? error.message : error);
     }
   }
 
@@ -68,4 +188,23 @@ async function main() {
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   main();
+}
+
+export async function handleLine(line: string, client: EzioClient): Promise<string | null> {
+  const trimmed = line.trim().toLowerCase();
+
+  if (trimmed === EXIT_COMMAND) {
+    return null;
+  }
+
+  if (trimmed === '') {
+    return '';
+  }
+
+  try {
+    const result = await client.resolve(line)
+    return result.execution?.finalOutput || 'Sin resultado'
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : error}`
+  }
 }
