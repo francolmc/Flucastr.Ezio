@@ -9,7 +9,8 @@ const rl = createInterface({
   output: process.stdout,
 });
 
-const PROMPT = 'EZIO > '
+const USER_PROMPT = 'TU > '
+const EZIO_PROMPT = 'EZIO > '
 const EXIT_COMMAND = 'exit'
 const VERBOSE_COMMAND = '/verbose'
 const QUIET_COMMAND = '/quiet'
@@ -33,7 +34,7 @@ function printProgress(event: ProgressEvent): void {
 
   switch (event.type) {
     case 'analyzing':
-      console.log(`\n[1/5] ${event.message}`)
+      console.log(`\n${EZIO_PROMPT}[1/5] ${event.message}`)
       if (event.complexity) {
         console.log(`    → ${event.complexity.isComplex ? '⚠️ COMPLEJO' : '✓ Simple'}`)
         console.log(`    → Razón: ${event.complexity.reason}`)
@@ -41,7 +42,7 @@ function printProgress(event: ProgressEvent): void {
       break
 
     case 'planning':
-      console.log(`\n[2/5] ${event.message}`)
+      console.log(`\n${EZIO_PROMPT}[2/5] ${event.message}`)
       if (event.plan) {
         console.log(`    → ${event.plan.summary}`)
         event.plan.steps.forEach(step => {
@@ -51,7 +52,7 @@ function printProgress(event: ProgressEvent): void {
       break
 
     case 'validating':
-      console.log(`\n[3/5] ${event.message}`)
+      console.log(`\n${EZIO_PROMPT}[3/5] ${event.message}`)
       if (event.plan) {
         console.log('    Plan:')
         event.plan.steps.forEach(step => {
@@ -62,7 +63,7 @@ function printProgress(event: ProgressEvent): void {
 
     case 'user_input_required':
       console.log('\n' + '='.repeat(50))
-      console.log('📋 VALIDACIÓN REQUERIDA')
+      console.log(`${EZIO_PROMPT}📋 VALIDACIÓN REQUERIDA`)
       if (event.plan) {
         console.log('\nPlan propuesto:')
         event.plan.steps.forEach(step => {
@@ -73,7 +74,7 @@ function printProgress(event: ProgressEvent): void {
       break
 
     case 'executing':
-      console.log(`\n[4/5] ${event.message}`)
+      console.log(`\n${EZIO_PROMPT}[4/5] ${event.message}`)
       if (event.plan) {
         console.log('    Ejecutando:')
         event.plan.steps.forEach(step => {
@@ -86,12 +87,12 @@ function printProgress(event: ProgressEvent): void {
       break
 
     case 'verifying':
-      console.log(`\n[5/5] ${event.message}`)
+      console.log(`\n${EZIO_PROMPT}[5/5] ${event.message}`)
       break
 
     case 'complete':
       console.log('\n' + '='.repeat(50))
-      console.log('✅ VERIFICACIÓN COMPLETA')
+      console.log(`${EZIO_PROMPT}✅ VERIFICACIÓN COMPLETA`)
       if (event.verification) {
         console.log(`\nEstado: ${event.verification.isVerified ? '✓ VERIFICADO' : '⚠️ CON PROBLEMAS'}`)
         console.log(`Reporte: ${event.verification.verificationReport}`)
@@ -110,7 +111,7 @@ async function handleUserValidation(request: UserValidationRequest): Promise<str
   }
   console.log(`\n${request.message || '¿Apruebas este plan?'}`)
 
-  const response = await rl.question(`${PROMPT} `)
+  const response = await rl.question(USER_PROMPT)
   return response
 }
 
@@ -134,10 +135,10 @@ async function main() {
 
   console.log(`Modo: ${verbose ? 'VERBOSE' : 'QUIET'} (usa /verbose para ver razonamiento)\n`);
 
-  while (true) {
-    let line: string;
-    try {
-      line = await rl.question(PROMPT);
+    while (true) {
+      let line: string;
+      try {
+        line = await rl.question(USER_PROMPT);
     } catch {
       break;
     }
@@ -173,11 +174,11 @@ async function main() {
       const result = await client.resolve(line)
 
       if (!verbose) {
-        console.log('\n' + result.execution?.finalOutput || 'Sin resultado')
+        console.log(`\n${EZIO_PROMPT}${result.execution?.finalOutput || 'Sin resultado'}`)
       }
       console.log()
     } catch (error) {
-      console.error('Error:', error instanceof Error ? error.message : error);
+      console.error(`${EZIO_PROMPT}Error:`, error instanceof Error ? error.message : error);
     }
   }
 

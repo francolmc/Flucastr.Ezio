@@ -98,13 +98,15 @@ export interface ReasoningConfig {
   maxPlanSteps: number
   maxValidationIterations: number
   twoPhaseReasoning: boolean
+  quickMode: boolean
 }
 
 export const DEFAULT_REASONING_CONFIG: ReasoningConfig = {
   modelSize: 'medium',
   maxPlanSteps: 5,
   maxValidationIterations: 3,
-  twoPhaseReasoning: true
+  twoPhaseReasoning: true,
+  quickMode: true
 }
 
 export function createReasoningConfig(partial: Partial<ReasoningConfig> & { modelSize: ModelSize }): ReasoningConfig {
@@ -113,6 +115,7 @@ export function createReasoningConfig(partial: Partial<ReasoningConfig> & { mode
     base.maxPlanSteps = 4
     base.maxValidationIterations = 3
     base.twoPhaseReasoning = false
+    base.quickMode = true
   }
   return { ...base, ...partial }
 }
