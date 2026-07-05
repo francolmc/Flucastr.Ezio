@@ -35,21 +35,24 @@ Respond with ONLY tool names separated by commas, nothing else.`
 
     try {
       const response = await this.adapter.complete(messages)
+      const responseTrimmed = response.trim()
+      if (responseTrimmed.toUpperCase() === 'NONE') {
+        return []
+      }
       const selected = this.parseResponse(response)
 
       if (selected.length === 0) {
-        console.warn('[ToolRetriever] No tools selected, using fallback')
-        return filteredTools.slice(0, maxTools)
+        return []
       }
 
       const toolMap = new Map(filteredTools.map(t => [t.name.toLowerCase(), t]))
       const result = selected
         .map(name => toolMap.get(name.toLowerCase()))
         .filter((t): t is Tool => t !== undefined)
+        .slice(0, maxTools)
 
       if (result.length === 0) {
-        console.warn('[ToolRetriever] No matched tools, using fallback')
-        return filteredTools.slice(0, maxTools)
+        return []
       }
 
       return result

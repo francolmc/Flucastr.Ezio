@@ -32,11 +32,13 @@ export class Harness {
       let status: 'ok' | 'failed' = 'ok'
       let failReason: string | undefined
 
-      const reasonResponse = await this.adapter.complete([{ role: 'user', content: buildReasonPrompt(context) }])
-        .catch((err) => {
-          rawReasoning = ''
-          return Promise.reject(err)
-        })
+      let reasonResponse: string | undefined
+      try {
+        reasonResponse = await this.adapter.complete([{ role: 'user', content: buildReasonPrompt(context) }])
+      } catch (err) {
+        rawReasoning = ''
+        reasonResponse = undefined
+      }
 
       if (!reasonResponse) {
         rawReasoning = ''
