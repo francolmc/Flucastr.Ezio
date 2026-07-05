@@ -4,43 +4,61 @@
 // this package will be relicensed to Apache 2.0.
 
 import { Core } from '@ezio/core'
-import type { ChatMessage, ResolutionResult, UserValidationRequest, ProgressEvent } from '@ezio/core'
+import { ConfigService } from '@ezio/core'
+import type { CoreInput, CoreOutput, ChatMessage, Tool, Fact } from '@ezio/core'
+import type { ModelAdapter } from '@ezio/core'
 
 export interface EzioClientConfig {
-  userValidationHandler?: (request: UserValidationRequest) => string | Promise<string>
-  progressHandler?: (event: ProgressEvent) => void
+  adapter?: ModelAdapter
+  tools?: Tool[]
+  toolExecutor?: (name: string, input: Record<string, unknown>) => Promise<string>
+  systemPrompt?: string
+  userProfile?: Fact[]
 }
 
 export class EzioClient {
-  private history: ChatMessage[] = []
   private core: Core
-  private userValidationHandler: (request: UserValidationRequest) => Promise<string>
-  private progressHandler?: (event: ProgressEvent) => void
+  private history: ChatMessage[]
+  private tools: Tool[]
+  private toolExecutor: (name: string, input: Record<string, unknown>) => Promise<string>
+  private systemPrompt: string
+  private userProfile: Fact[]
 
   constructor(config: EzioClientConfig = {}) {
-    this.core = new Core()
-    this.progressHandler = config.progressHandler
-    this.userValidationHandler = async (request: UserValidationRequest) => {
-      if (config.userValidationHandler) {
-        const result = config.userValidationHandler(request)
-        return typeof result === 'string' ? result : await result
-      }
-      throw new Error('No user validation handler configured')
-    }
+    const adapter = config.adapter ?? ConfigService.createAdapter()
+    this.core = new Core(adapter)
+    this.history = []
+    this.tools = config.tools ?? []
+    this.toolExecutor = config.toolExecutor ?? (() => Promise.resolve(''))
+    this.systemPrompt = config.systemPrompt ?? 'You are Ezio, a personal assistant.'
+    this.userProfile = config.userProfile ?? []
   }
 
   async send(message: string): Promise<string> {
-    const response = await this.core.chat(message, [...this.history])
-    this.history.push({ role: 'user', content: message })
-    this.history.push({ role: 'assistant', content: response })
-    return response
+    const output = await this.resolve(message)
+    return output.response
   }
 
-  async resolve(message: string): Promise<ResolutionResult> {
-    return this.core.resolve(message, {
-      onUserValidation: this.userValidationHandler,
-      onProgress: this.progressHandler
-    })
+  async resolve(message: string): Promise<CoreOutput> {
+    const sessionContext = this.history.length > 0
+      ? this.history.slice(-6).map(msg => `${msg.role}: ${msg.content}`).join('\n')
+      : undefined
+
+    const coreInput: CoreInput = {
+      message,
+      tools: this.tools,
+      toolExecutor: this.toolExecutor,
+      systemPrompt: this.systemPrompt,
+      sessionContext,
+      userProfile: this.userProfile
+    }
+
+    const output = await this.core.process(coreInput)
+
+    this.history.push({ role: 'user', content: message })
+    this.history.push({ role: 'assistant', content: output.response })
+
+    return output
   }
 
   getHistory(): ChatMessage[] {
