@@ -5,6 +5,7 @@ import type { ModelAdapter } from '../adapters/ModelAdapter'
 import { OllamaAdapter } from '../adapters/OllamaAdapter'
 import { AnthropicAdapter } from '../adapters/AnthropicAdapter'
 import { GoogleAdapter } from '../adapters/GoogleAdapter'
+import { OpenAIAdapter } from '../adapters/OpenAIAdapter'
 import type { ModelSize } from '../reasoning/types'
 
 export interface ReasoningConfig {
@@ -22,6 +23,9 @@ export interface EzioConfig {
     google?: { apiKey: string }
   }
   reasoning?: Partial<ReasoningConfig>
+  provider?: 'ollama' | 'anthropic' | 'google' | 'openai'
+  apiKey?: string
+  baseUrl?: string
 }
 
 const SUPPORTED_PROVIDERS = ['ollama', 'anthropic', 'google'] as const
@@ -113,5 +117,37 @@ export class ConfigService {
     }
 
     return createAdapter(provider, providerConfig, name)
+  }
+
+  static createAdapter(config?: EzioConfig): ModelAdapter {
+    let cfg: EzioConfig | undefined = config
+
+    if (!cfg) {
+      try {
+        cfg = ConfigService.load()
+      } catch {
+        return new OllamaAdapter({ baseUrl: 'http://localhost:11434', model: 'qwen3:4b' })
+      }
+    }
+
+    const provider = cfg.provider ?? 'ollama'
+
+    switch (provider) {
+      case 'anthropic':
+        if (!cfg.apiKey) throw new Error('Missing required field "apiKey" for anthropic provider')
+        return new AnthropicAdapter({ apiKey: cfg.apiKey, model: cfg.model.name })
+      case 'google':
+        if (!cfg.apiKey) throw new Error('Missing required field "apiKey" for google provider')
+        return new GoogleAdapter({ apiKey: cfg.apiKey, model: cfg.model.name })
+      case 'openai':
+        if (!cfg.apiKey) throw new Error('Missing required field "apiKey" for openai provider')
+        return new OpenAIAdapter({ apiKey: cfg.apiKey, model: cfg.model.name })
+      case 'ollama':
+      default:
+        return new OllamaAdapter({
+          baseUrl: cfg.baseUrl ?? 'http://localhost:11434',
+          model: cfg.model.name ?? 'qwen3:4b'
+        })
+    }
   }
 }
