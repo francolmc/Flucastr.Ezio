@@ -1,37 +1,162 @@
-import type { ChatMessage, ModelAdapter } from './adapters/ModelAdapter'
-import { ConfigService, type ReasoningConfig } from './config/ConfigService'
-import { ReasoningEngine, type ResolveCallbacks, type ResolutionResult } from './reasoning'
-import { createReasoningConfig } from './reasoning/types'
+import type { CoreInput, CoreOutput } from './types/index'
+import type { ModelAdapter } from './adapters/ModelAdapter'
+import { Harness } from './harness/Harness'
+import { Classifier } from './planner/Classifier'
+import { ToolRetriever } from './planner/ToolRetriever'
+import { createRitosService, type RitosService } from './memory/Ritos'
+import {
+  buildUnderstandPrompt,
+  buildPlanPrompt,
+  buildExaminePrompt,
+  buildRespondPrompt
+} from './planner/prompts'
 
 export class Core {
-  private adapter: ModelAdapter
-  private reasoningEngine: ReasoningEngine
+  private harness: Harness
+  private classifier: Classifier
+  private ritosService: RitosService | null = null
 
-  constructor(adapter?: ModelAdapter, reasoningConfig?: Partial<ReasoningConfig> & { modelSize: ReasoningConfig['modelSize'] }) {
-    this.adapter = adapter ?? ConfigService.getActiveAdapter()
-    const config = reasoningConfig ?? this.loadReasoningConfig()
-    this.reasoningEngine = new ReasoningEngine(this.adapter, config)
+  constructor(
+    private adapter: ModelAdapter,
+    db?: import('node:sqlite').DatabaseSync
+  ) {
+    this.harness = new Harness(adapter)
+    this.classifier = new Classifier(adapter)
+    if (db) {
+      this.ritosService = createRitosService(db)
+    }
   }
 
-  private loadReasoningConfig(): ReasoningConfig {
+  async process(input: CoreInput): Promise<CoreOutput> {
+
+    // PASO 1 — Clasificar
+    const { level: classification } = await this.classifier.classify(
+      input.message,
+      input.sessionContext
+    )
+
+    // PASO 2 — SIMPLE: respuesta directa
+    if (classification === 'simple') {
+      const parts = [
+        input.systemPrompt ?? 'You are Ezio, a personal assistant.',
+        input.userProfile?.length
+          ? 'USER CONTEXT:\n' + input.userProfile.map(f => `${f.key}: ${f.value}`).join('\n')
+          : '',
+        input.sessionContext ? 'CONVERSATION HISTORY:\n' + input.sessionContext : '',
+        'USER: ' + input.message
+      ].filter(Boolean).join('\n\n')
+
+      const response = await this.adapter.complete([{ role: 'user', content: parts }])
+      return { response, stepResults: [], classification }
+    }
+
+    // PASO 3 — Understand (Pólya fase 1)
+    const understanding = await this.adapter.complete([{
+      role: 'user',
+      content: buildUnderstandPrompt(input.message, input.userProfile ?? [], input.sessionContext)
+    }])
+
+    // PASO 4 — ToolRetriever
+    const retriever = new ToolRetriever(this.adapter, input.tools)
+    const relevantTools = await retriever.retrieve(understanding, 5)
+
+    // PASO 5 — Buscar Rito (solo COMPLEX)
+    let ritoGuia: string | undefined
+    if (classification === 'complex' && this.ritosService) {
+      const ritoMatch = this.ritosService.findRito('default', understanding)
+      if (ritoMatch) ritoGuia = ritoMatch.rito.guia
+    }
+
+    // PASO 6 — Plan (Pólya fase 2)
+    const planText = await this.adapter.complete([{
+      role: 'user',
+      content: buildPlanPrompt(understanding, relevantTools, input.sessionContext, ritoGuia)
+    }])
+
+    if (planText.trim() === 'NO_STEPS') {
+      const response = await this.adapter.complete([{
+        role: 'user',
+        content: buildRespondPrompt(input.message, understanding, [], input.userProfile ?? [])
+      }])
+      return { response, stepResults: [], classification }
+    }
+
+    // Parsear plan en Subtask[]
+    const subtasks = planText
+      .split('\n')
+      .filter(line => /^\d+\./.test(line.trim()))
+      .map((line, index) => ({
+        id: index + 1,
+        objective: line.replace(/^\d+\.\s*/, '').trim(),
+        dependsOn: index === 0 ? null : index
+      }))
+
+    // Si no se parsearon pasos, respuesta directa
+    if (subtasks.length === 0) {
+      const response = await this.adapter.complete([{
+        role: 'user',
+        content: buildRespondPrompt(input.message, understanding, [], input.userProfile ?? [])
+      }])
+      return { response, stepResults: [], classification }
+    }
+
+    // PASO 7 — Execute (Pólya fase 3 — Harness)
+    const toolRegistry = { callTool: input.toolExecutor }
+    const stepResults = await this.harness.run(
+      subtasks,
+      {
+        systemPromptBase: input.systemPrompt ?? 'You are Ezio, a personal assistant.',
+        previousSummaries: [],
+        classification
+      },
+      toolRegistry,
+      relevantTools
+    )
+
+    // PASO 8 — Examine (Pólya fase 4 — primera mitad)
+    let gapContext: string | undefined
     try {
-      const ezioConfig = ConfigService.load()
-      if (ezioConfig.reasoning) {
-        const { modelSize, ...rest } = ezioConfig.reasoning
-        return createReasoningConfig({ modelSize: modelSize || 'medium', ...rest })
+      const examineRaw = await this.adapter.complete([{
+        role: 'user',
+        content: buildExaminePrompt(
+          understanding,
+          stepResults.map(r => ({ summary: r.summary, status: r.status }))
+        )
+      }])
+      const firstBrace = examineRaw.indexOf('{')
+      const lastBrace = examineRaw.lastIndexOf('}')
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        const examined = JSON.parse(examineRaw.slice(firstBrace, lastBrace + 1))
+        if (!examined.accomplished && examined.gaps) {
+          gapContext = examined.gaps
+        }
       }
     } catch {
-      // ignore
+      // continuar sin gapContext
     }
-    return createReasoningConfig({ modelSize: 'medium' })
-  }
 
-  async chat(message: string, history: ChatMessage[] = []): Promise<string> {
-    const messages: ChatMessage[] = [...history, { role: 'user', content: message }]
-    return this.adapter.complete(messages)
-  }
+    // PASO 9 — Respond (Pólya fase 4 — segunda mitad)
+    const response = await this.adapter.complete([{
+      role: 'user',
+      content: buildRespondPrompt(
+        input.message,
+        understanding,
+        stepResults,
+        input.userProfile ?? [],
+        gapContext
+      )
+    }])
 
-  async resolve(message: string, callbacks: ResolveCallbacks): Promise<ResolutionResult> {
-    return this.reasoningEngine.resolve(message, callbacks)
+    // PASO 10 — Guardar Rito en background
+    if (classification === 'complex' && stepResults.every(r => r.status === 'ok') && this.ritosService) {
+      this.adapter.complete([{
+        role: 'user',
+        content: `Generate a brief guidance (max 3 sentences) describing how to structure this type of problem. Focus on the approach, not on specific paths or identifiers. Objective: ${understanding}`
+      }])
+      .then(guia => this.ritosService!.saveRito('default', understanding, stepResults.map(r => r.tool), stepResults.map(r => r.summary).join('\n'), guia))
+      .catch(e => console.warn('[Core] saveRito error:', e))
+    }
+
+    return { response, stepResults, classification }
   }
 }
