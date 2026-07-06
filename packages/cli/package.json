@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@ezio/core": "workspace:*",
-    "@ezio/sdk": "workspace:*"
+    "@ezio/sdk": "workspace:*",
+    "@ezio/tools": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.4",

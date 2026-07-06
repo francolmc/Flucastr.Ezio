@@ -52,7 +52,7 @@ Respond with ONLY tool names separated by commas, nothing else.`
         .slice(0, maxTools)
 
       if (result.length === 0) {
-        return []
+        return filteredTools.slice(0, maxTools)
       }
 
       return result

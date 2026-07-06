@@ -20,13 +20,14 @@ export class Harness {
     const previousSummaries: string[] = []
 
     for (const subtask of subtasks) {
-      console.warn(`[Harness] subtask ${subtask.id} tokens: ~${Math.ceil(subtask.objective.length / 4)}`)
-
       const context: HarnessContext = {
         ...baseContext,
         subtask,
         tools: allTools,
       }
+
+      const estimatedPrompt = buildReasonPrompt(context)
+      console.warn(`[Harness] subtask ${subtask.id} tokens: ~${Math.ceil(estimatedPrompt.length / 4)}`)
 
       let rawReasoning: string
       let status: 'ok' | 'failed' = 'ok'
@@ -49,10 +50,18 @@ export class Harness {
       }
       rawReasoning = reasonResponse
 
+      if (process.env.EZIO_DEBUG === 'true') {
+        console.warn(`[Harness] subtask ${subtask.id} reasoning:\n${rawReasoning.slice(0, 300)}`)
+      }
+
       let serialized: { tool: string; input: Record<string, unknown> } | null = null
       const serializeResponse = await this.adapter.complete([
         { role: 'user', content: buildSerializePrompt(rawReasoning, allTools) }
       ]).catch(() => null)
+
+      if (process.env.EZIO_DEBUG === 'true') {
+        console.warn(`[Harness] subtask ${subtask.id} serialize raw:\n${serializeResponse?.slice(0, 300)}`)
+      }
 
       if (!serializeResponse) {
         const retryResponse = await this.adapter.complete([
@@ -71,6 +80,10 @@ export class Harness {
         serialized = this.parseJson(serializeResponse)
       }
 
+      if (process.env.EZIO_DEBUG === 'true') {
+        console.warn(`[Harness] subtask ${subtask.id} parsed:`, JSON.stringify(serialized))
+      }
+
       if (!serialized) {
         status = 'failed'
         failReason = 'SerializePhase failed to parse JSON'
@@ -85,6 +98,10 @@ export class Harness {
         rawResult = await toolRegistry.callTool(toolName, toolInput)
       } catch (err) {
         rawResult = err instanceof Error ? err.message : String(err)
+      }
+
+      if (process.env.EZIO_DEBUG === 'true') {
+        console.warn(`[Harness] subtask ${subtask.id} tool=${toolName} result:\n${rawResult.slice(0, 200)}`)
       }
 
       if (baseContext.classification === 'complex') {
@@ -154,15 +171,44 @@ export class Harness {
     return results
   }
 
-  private parseJson(response: string): { tool: string; input: Record<string, unknown> } | null {
-    const match = response.match(/\{[\s\S]*?"tool"[\s\S]*?"input"[\s\S]*?\}/)
-    if (!match) return null
-    try {
-      const parsed = JSON.parse(match[0])
-      if (parsed.tool && parsed.input) return parsed
-      return null
-    } catch {
-      return null
+  private parseJson(
+    response: string
+  ): { tool: string; input: Record<string, unknown> } | null {
+    let text = response
+      .replace(/```json[\s\S]*?```/g, m =>
+        m.replace(/```json\s*/i, '').replace(/```$/, '')
+      )
+      .replace(/```[\s\S]*?```/g, m =>
+        m.replace(/```\s*/, '').replace(/```$/, '')
+      )
+
+    let depth = 0
+    let start = -1
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '{') {
+        if (depth === 0) start = i
+        depth++
+      } else if (text[i] === '}') {
+        depth--
+        if (depth === 0 && start !== -1) {
+          const candidate = text.slice(start, i + 1)
+          try {
+            const parsed = JSON.parse(candidate)
+            if (
+              typeof parsed.tool === 'string' &&
+              parsed.tool.length > 0 &&
+              parsed.input !== undefined &&
+              typeof parsed.input === 'object'
+            ) {
+              return { tool: parsed.tool, input: parsed.input }
+            }
+          } catch {
+            // seguir buscando
+          }
+          start = -1
+        }
+      }
     }
+    return null
   }
 }

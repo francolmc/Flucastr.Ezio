@@ -5,12 +5,12 @@ export default defineConfig({
   build: {
     target: 'node18',
     lib: {
-      entry: resolve(__dirname, 'src/chat.ts'),
+      entry: resolve(__dirname, 'src/index.ts'),
       formats: ['es'],
-      fileName: 'chat'
+      fileName: 'index'
     },
     rollupOptions: {
-      external: [/^node:/, '@ezio/core', '@ezio/sdk', '@ezio/tools']
+      external: [/^node:/, '@ezio/core']
     },
     outDir: 'dist',
     sourcemap: true

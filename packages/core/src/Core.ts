@@ -10,6 +10,8 @@ import {
   buildExaminePrompt,
   buildRespondPrompt
 } from './planner/prompts'
+import * as os from 'node:os'
+import * as path from 'node:path'
 
 export class Core {
   private harness: Harness
@@ -50,15 +52,26 @@ export class Core {
       return { response, stepResults: [], classification }
     }
 
+    // Construir contexto del sistema
+    const systemContext = [
+      `Home directory: ${os.homedir()}`,
+      `Downloads: ${path.join(os.homedir(), 'Downloads')}`,
+      `Desktop: ${path.join(os.homedir(), 'Desktop')}`,
+      `Documents: ${path.join(os.homedir(), 'Documents')}`,
+      `Current working directory: ${process.cwd()}`,
+      `Platform: ${process.platform}`,
+    ].join('\n')
+
     // PASO 3 — Understand (Pólya fase 1)
     const understanding = await this.adapter.complete([{
       role: 'user',
-      content: buildUnderstandPrompt(input.message, input.userProfile ?? [], input.sessionContext)
+      content: buildUnderstandPrompt(input.message, input.userProfile ?? [], input.sessionContext, systemContext)
     }])
 
     // PASO 4 — ToolRetriever
     const retriever = new ToolRetriever(this.adapter, input.tools)
-    const relevantTools = await retriever.retrieve(understanding, 5)
+    const retrieved = await retriever.retrieve(understanding, 5)
+    const relevantTools = retrieved.length > 0 ? retrieved : input.tools.slice(0, 5)
 
     // PASO 5 — Buscar Rito (solo COMPLEX)
     let ritoGuia: string | undefined
@@ -70,7 +83,7 @@ export class Core {
     // PASO 6 — Plan (Pólya fase 2)
     const planText = await this.adapter.complete([{
       role: 'user',
-      content: buildPlanPrompt(understanding, relevantTools, input.sessionContext, ritoGuia)
+      content: buildPlanPrompt(understanding, relevantTools, input.sessionContext, ritoGuia, systemContext)
     }])
 
     if (planText.trim() === 'NO_STEPS') {
@@ -84,15 +97,20 @@ export class Core {
     // Parsear plan en Subtask[]
     const subtasks = planText
       .split('\n')
-      .filter(line => /^\d+\./.test(line.trim()))
+      .map(line => line.trim())
+      .filter(line => /^\d+[\.\)]\s+/.test(line) || /^\*{0,2}\d+[\.\)]\*{0,2}\s+/.test(line))
       .map((line, index) => ({
         id: index + 1,
-        objective: line.replace(/^\d+\.\s*/, '').trim(),
+        objective: line
+          .replace(/^\*{0,2}\d+[\.\)]\*{0,2}\s+/, '')
+          .replace(/^\d+[\.\)]\s+/, '')
+          .trim(),
         dependsOn: index === 0 ? null : index
       }))
 
     // Si no se parsearon pasos, respuesta directa
     if (subtasks.length === 0) {
+      console.warn('[Core] Plan parsed 0 subtasks. planText was:\n', planText.slice(0, 500))
       const response = await this.adapter.complete([{
         role: 'user',
         content: buildRespondPrompt(input.message, understanding, [], input.userProfile ?? [])

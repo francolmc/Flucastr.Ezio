@@ -7,6 +7,7 @@ import { Core } from '@ezio/core'
 import { ConfigService } from '@ezio/core'
 import type { CoreInput, CoreOutput, ChatMessage, Tool, Fact } from '@ezio/core'
 import type { ModelAdapter } from '@ezio/core'
+import { LanguageMiddleware } from './LanguageMiddleware'
 
 export interface EzioClientConfig {
   adapter?: ModelAdapter
@@ -23,6 +24,8 @@ export class EzioClient {
   private toolExecutor: (name: string, input: Record<string, unknown>) => Promise<string>
   private systemPrompt: string
   private userProfile: Fact[]
+  private languageMiddleware: LanguageMiddleware
+  private detectedLanguage: string = 'en'
 
   constructor(config: EzioClientConfig = {}) {
     const adapter = config.adapter ?? ConfigService.createAdapter()
@@ -32,6 +35,7 @@ export class EzioClient {
     this.toolExecutor = config.toolExecutor ?? (() => Promise.resolve(''))
     this.systemPrompt = config.systemPrompt ?? 'You are Ezio, a personal assistant.'
     this.userProfile = config.userProfile ?? []
+    this.languageMiddleware = new LanguageMiddleware(adapter)
   }
 
   async send(message: string): Promise<string> {
@@ -55,10 +59,26 @@ export class EzioClient {
 
     const output = await this.core.process(coreInput)
 
-    this.history.push({ role: 'user', content: message })
-    this.history.push({ role: 'assistant', content: output.response })
+    if (this.history.length === 0) {
+      this.detectedLanguage = this.languageMiddleware.detectLanguage(message)
+    }
 
-    return output
+    let finalResponse = output.response
+    if (this.detectedLanguage !== 'en') {
+      try {
+        finalResponse = await this.languageMiddleware.translate(
+          output.response,
+          this.detectedLanguage
+        )
+      } catch {
+        finalResponse = output.response
+      }
+    }
+
+    this.history.push({ role: 'user', content: message })
+    this.history.push({ role: 'assistant', content: finalResponse })
+
+    return { ...output, response: finalResponse }
   }
 
   getHistory(): ChatMessage[] {

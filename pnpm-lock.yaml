@@ -32,6 +32,9 @@ importers:
       '@ezio/sdk':
         specifier: workspace:*
         version: link:../sdk
+      '@ezio/tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@types/node':
         specifier: ^22.5.0
@@ -73,6 +76,28 @@ importers:
       '@types/node':
         specifier: ^22.5.0
         version: 22.20.0
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vite:
+        specifier: ^5.4.0
+        version: 5.4.21(@types/node@22.20.0)
+      vitest:
+        specifier: ^2.0.5
+        version: 2.1.9(@types/node@22.20.0)
+
+  packages/tools:
+    dependencies:
+      '@ezio/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.5.0
+        version: 22.20.0
+      tsx:
+        specifier: ^4.16.5
+        version: 4.22.4
       typescript:
         specifier: ^5.5.4
         version: 5.9.3

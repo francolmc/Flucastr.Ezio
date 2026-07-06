@@ -14,19 +14,32 @@ export class Classifier {
       ? `\nCONTEXT:\n${sessionContext}`
       : ''
 
-    const prompt = `Classify the user request complexity level.
+    const prompt = `Classify the complexity of the user request.
 
-USER MESSAGE: ${message}${contextSection}
+USER MESSAGE: ${message}
+${sessionContext ? `CONTEXT:\n${sessionContext}` : ''}
 
 LEVELS:
-- SIMPLE: no external actions needed. Conversation, general knowledge, confirmations, greetings.
-- MODERATE: exactly ONE external tool call will complete the task. The tool output directly answers the request.
-- COMPLEX: 2 or more tool calls where the result of step N is required input for step N+1.
+- SIMPLE: No external tools needed. Only for: greetings, general knowledge 
+  questions answerable from memory, casual conversation, confirmations.
+- MODERATE: Exactly ONE external tool call needed.
+- COMPLEX: 2 or more tool calls where result of step N feeds into step N+1.
 
-Rules:
-- Default to SIMPLE when uncertain between SIMPLE and MODERATE
-- Default to COMPLEX when uncertain between MODERATE and COMPLEX
-- Only count actions that require external tools
+CRITICAL RULES — these override everything else:
+- ANY question about files, folders, directories, or file contents = MODERATE minimum
+- ANY question about current system state = MODERATE minimum  
+- ANY request to read, list, search, create, or modify files = MODERATE minimum
+- "show me", "list", "what's in", "contents of" + any folder/file = MODERATE
+- Only classify as SIMPLE if the answer requires NO external data whatsoever
+- When in doubt between SIMPLE and MODERATE: choose MODERATE
+
+Examples:
+- "hola" → SIMPLE
+- "what is Python?" → SIMPLE  
+- "list my Downloads folder" → MODERATE
+- "show me Documents" → MODERATE
+- "what files do I have?" → MODERATE
+- "search for X and create a file with results" → COMPLEX
 
 Respond with ONLY valid JSON:
 {"level": "simple|moderate|complex", "reason": "brief explanation"}`

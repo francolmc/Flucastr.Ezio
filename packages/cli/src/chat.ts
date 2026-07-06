@@ -3,6 +3,7 @@
 import * as readline from 'node:readline'
 import { EzioClient } from '@ezio/sdk'
 import { ConfigService } from '@ezio/core'
+import { createToolsProvider } from '@ezio/tools'
 
 const INPUT_PROMPT = '> '
 const RESPONSE_PREFIX = 'ezio: '
@@ -17,12 +18,21 @@ async function main() {
     process.exit(1)
   }
 
+  const toolsProvider = createToolsProvider({
+    mcpServers: config.mcpServers ?? []
+  })
+  const tools = await toolsProvider.getTools()
   const adapter = ConfigService.getActiveAdapter(config)
-  const client = new EzioClient({ adapter })
+  const client = new EzioClient({
+    adapter,
+    tools,
+    toolExecutor: toolsProvider.getToolExecutor()
+  })
 
   const { provider, name } = config.model
   console.log('╭─ Ezio ──────────────────────────╮')
   console.log(`│  model: ${name} · ${provider}       │`)
+  console.log(`│  tools: ${tools.length} native                   │`)
   console.log('│  type "exit" to quit            │')
   console.log('╰─────────────────────────────────╯')
   console.log()

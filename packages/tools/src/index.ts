@@ -1,0 +1,6 @@
+export { ToolsProvider, createToolsProvider } from './ToolsProvider'
+export type { ToolsProviderConfig } from './ToolsProvider'
+export { createMcpRegistry } from './mcp/McpRegistry'
+export { filesystemTools } from './native/FilesystemTool'
+export { shellTools } from './native/ShellTool'
+export { webSearchTools } from './native/WebSearchTool'

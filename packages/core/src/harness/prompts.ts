@@ -5,7 +5,10 @@ export function buildReasonPrompt(context: HarnessContext): string {
   prompt += `You are executing step ${context.subtask.id} of a multi-step plan.\n`
 
   if (context.previousSummaries.length > 0) {
-    prompt += `\nINPUT FROM PREVIOUS STEPS:\n${context.previousSummaries.join('\n')}\n`
+    prompt += `\nRESULTS FROM PREVIOUS STEPS (use this data directly):\n`
+    prompt += context.previousSummaries.join('\n')
+    prompt += `\n\nCRITICAL: The content above is real data already retrieved. `
+    prompt += `Use it directly — do NOT search for it again or leave content empty.\n`
   }
 
   prompt += `\nYOUR CURRENT TASK: ${context.subtask.objective}\n`
@@ -20,15 +23,30 @@ export function buildReasonPrompt(context: HarnessContext): string {
 }
 
 export function buildSerializePrompt(reasoning: string, tools: Tool[]): string {
-  let prompt = `Convert the following reasoning into a JSON tool invocation.\n\n`
-  prompt += `REASONING:\n${reasoning}\n\n`
-  prompt += `AVAILABLE TOOLS:\n`
+  let prompt = `You must convert the following reasoning into a JSON tool call.
+
+REASONING:
+${reasoning}
+
+AVAILABLE TOOLS AND REQUIRED FIELDS:
+`
   for (const tool of tools) {
-    prompt += `- ${tool.name}:\n${JSON.stringify(tool.inputSchema, null, 2)}\n\n`
+    const required = (tool.inputSchema as any)?.required ?? []
+    const props = (tool.inputSchema as any)?.properties ?? {}
+    const fields = required.map((r: string) =>
+      `  "${r}": ${props[r]?.description ?? 'string'}`
+    ).join(',\n')
+    prompt += `${tool.name}:\n  required fields: {\n${fields}\n}\n\n`
   }
 
-  prompt += `CRITICAL: Copy values EXACTLY as they appear in the reasoning — do not truncate, abbreviate, or modify them.\n`
-  prompt += `Output format: {"tool": "tool_name", "input": {...}}`
+  prompt += `CRITICAL RULES:
+- Respond with ONLY a JSON object — no explanation, no markdown, no backticks
+- Use EXACTLY this format: {"tool": "tool_name", "input": {"param": "value"}}
+- Copy parameter values EXACTLY as they appear in the reasoning
+- Use ONLY tool names from the list above
+- Do NOT add any text before or after the JSON
+
+JSON response:`
   return prompt
 }
 
@@ -38,13 +56,22 @@ export function buildSummaryPrompt(
   rawResult: string,
   toolInput: Record<string, unknown>
 ): string {
-  let prompt = `Compress the following tool execution result into 3 lines or less.\n\n`
-  prompt += `Step ${subtaskId} (${tool}) executed with input:\n${JSON.stringify(toolInput, null, 2)}\n\n`
-  prompt += `Raw result:\n${rawResult}\n\n`
-  prompt += `Provide a summary in this exact format:\n`
-  prompt += `Step ${subtaskId} (${tool}): {one line description of what was done}\n`
-  prompt += `Key output: {key value extracted, or 'none'}`
-  return prompt
+  const truncated = rawResult.slice(0, 2000)
+  const wasTruncated = rawResult.length > 2000
+
+  return `Compress this tool execution into a summary for the next step.
+
+Step ${subtaskId} executed tool: ${tool}
+Input used: ${JSON.stringify(toolInput)}
+Result:
+${truncated}${wasTruncated ? '\n[truncated]' : ''}
+
+Write the summary in this EXACT format:
+Step ${subtaskId} (${tool}): {one line describing what was done}
+Key output: {the most important value or content from the result, verbatim if short}
+
+CRITICAL: If the result contains text content (search results, file contents, etc.),
+include the first 500 characters verbatim in "Key output" so the next step can use it.`
 }
 
 export function buildVerifyPrompt(objective: string, result: string): string {
