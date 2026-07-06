@@ -22,8 +22,8 @@ export class Harness {
 
     for (const subtask of subtasks) {
       const retriever = new ToolRetriever(this.adapter, allTools)
-      const relevantTools = await retriever.retrieve(subtask.objective, 5)
-      const toolsForStep = relevantTools.length > 0 ? relevantTools : allTools.slice(0, 5)
+      const retrieved = await retriever.retrieve(subtask.objective, 3)
+      const toolsForStep = retrieved.length > 0 ? retrieved : allTools.slice(0, 3)
 
       const context: HarnessContext = {
         ...baseContext,
