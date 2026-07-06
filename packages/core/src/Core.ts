@@ -2,7 +2,6 @@ import type { CoreInput, CoreOutput } from './types/index'
 import type { ModelAdapter } from './adapters/ModelAdapter'
 import { Harness } from './harness/Harness'
 import { Classifier } from './planner/Classifier'
-import { ToolRetriever } from './planner/ToolRetriever'
 import { createRitosService, type RitosService } from './memory/Ritos'
 import {
   buildUnderstandPrompt,
@@ -68,12 +67,7 @@ export class Core {
       content: buildUnderstandPrompt(input.message, input.userProfile ?? [], input.sessionContext, systemContext)
     }])
 
-    // PASO 4 — ToolRetriever
-    const retriever = new ToolRetriever(this.adapter, input.tools)
-    const retrieved = await retriever.retrieve(understanding, 5)
-    const relevantTools = retrieved.length > 0 ? retrieved : input.tools.slice(0, 5)
-
-    // PASO 5 — Buscar Rito (solo COMPLEX)
+    // PASO 4 — Buscar Rito (solo COMPLEX)
     let ritoGuia: string | undefined
     if (classification === 'complex' && this.ritosService) {
       const ritoMatch = this.ritosService.findRito('default', understanding)
@@ -83,7 +77,7 @@ export class Core {
     // PASO 6 — Plan (Pólya fase 2)
     const planText = await this.adapter.complete([{
       role: 'user',
-      content: buildPlanPrompt(understanding, relevantTools, input.sessionContext, ritoGuia, systemContext)
+      content: buildPlanPrompt(understanding, input.tools, input.sessionContext, ritoGuia, systemContext)
     }])
 
     if (planText.trim() === 'NO_STEPS') {
@@ -128,7 +122,7 @@ export class Core {
         classification
       },
       toolRegistry,
-      relevantTools
+      input.tools
     )
 
     // PASO 8 — Examine (Pólya fase 4 — primera mitad)

@@ -1,6 +1,7 @@
 import type { ModelAdapter } from '../adapters/ModelAdapter'
 import type { Tool, ToolRegistry, Subtask, StepResult, HarnessContext } from '../types/index'
 import { Verifier } from './Verifier'
+import { ToolRetriever } from '../planner/ToolRetriever'
 import { buildReasonPrompt, buildSerializePrompt, buildSummaryPrompt } from './prompts'
 
 export class Harness {
@@ -20,10 +21,14 @@ export class Harness {
     const previousSummaries: string[] = []
 
     for (const subtask of subtasks) {
+      const retriever = new ToolRetriever(this.adapter, allTools)
+      const relevantTools = await retriever.retrieve(subtask.objective, 5)
+      const toolsForStep = relevantTools.length > 0 ? relevantTools : allTools.slice(0, 5)
+
       const context: HarnessContext = {
         ...baseContext,
         subtask,
-        tools: allTools,
+        tools: toolsForStep,
       }
 
       const estimatedPrompt = buildReasonPrompt(context)
@@ -59,7 +64,7 @@ export class Harness {
 
       let serialized: { tool: string; input: Record<string, unknown> } | null = null
       const serializeResponse = await this.adapter.complete([
-        { role: 'system', content: buildSerializePrompt(rawReasoning, allTools) },
+        { role: 'system', content: buildSerializePrompt(rawReasoning, toolsForStep) },
         { role: 'user', content: 'Produce the JSON tool call.' }
       ]).catch(() => null)
 
@@ -69,7 +74,7 @@ export class Harness {
 
       if (!serializeResponse) {
         const retryResponse = await this.adapter.complete([
-          { role: 'system', content: buildSerializePrompt(rawReasoning, allTools) },
+          { role: 'system', content: buildSerializePrompt(rawReasoning, toolsForStep) },
           { role: 'user', content: 'CRITICAL: respond with ONLY valid JSON, no additional text.' }
         ]).catch(() => null)
 
@@ -123,7 +128,7 @@ export class Harness {
 
           if (retryReasoning) {
             const retrySerialize = await this.adapter.complete([
-              { role: 'system', content: buildSerializePrompt(retryReasoning, allTools) },
+              { role: 'system', content: buildSerializePrompt(retryReasoning, toolsForStep) },
               { role: 'user', content: 'Produce the JSON tool call.' }
             ]).catch(() => null)
 
