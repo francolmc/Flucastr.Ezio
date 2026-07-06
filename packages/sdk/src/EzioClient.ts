@@ -59,8 +59,9 @@ export class EzioClient {
 
     const output = await this.core.process(coreInput)
 
-    if (this.history.length === 0) {
-      this.detectedLanguage = this.languageMiddleware.detectLanguage(message)
+    const detected = this.languageMiddleware.detectLanguage(message)
+    if (detected !== 'en' || this.history.length === 0) {
+      this.detectedLanguage = detected
     }
 
     let finalResponse = output.response
@@ -76,7 +77,7 @@ export class EzioClient {
     }
 
     this.history.push({ role: 'user', content: message })
-    this.history.push({ role: 'assistant', content: finalResponse })
+    this.history.push({ role: 'assistant', content: output.response })
 
     return { ...output, response: finalResponse }
   }
