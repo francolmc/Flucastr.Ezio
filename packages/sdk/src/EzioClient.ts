@@ -44,6 +44,15 @@ export class EzioClient {
   }
 
   async resolve(message: string): Promise<CoreOutput> {
+    const detected = this.languageMiddleware.detectLanguage(message)
+    if (detected !== 'en' || this.history.length === 0) {
+      this.detectedLanguage = detected
+    }
+
+    const languageInstruction = this.detectedLanguage !== 'en'
+      ? `\n\nIMPORTANT: The user speaks ${this.detectedLanguage}. When writing content to files, translate and write it in ${this.detectedLanguage}. Your final response to the user must also be in ${this.detectedLanguage}.`
+      : ''
+
     const sessionContext = this.history.length > 0
       ? this.history.slice(-6).map(msg => `${msg.role}: ${msg.content}`).join('\n')
       : undefined
@@ -52,17 +61,12 @@ export class EzioClient {
       message,
       tools: this.tools,
       toolExecutor: this.toolExecutor,
-      systemPrompt: this.systemPrompt,
+      systemPrompt: this.systemPrompt + languageInstruction,
       sessionContext,
       userProfile: this.userProfile
     }
 
     const output = await this.core.process(coreInput)
-
-    const detected = this.languageMiddleware.detectLanguage(message)
-    if (detected !== 'en' || this.history.length === 0) {
-      this.detectedLanguage = detected
-    }
 
     let finalResponse = output.response
     if (this.detectedLanguage !== 'en') {
