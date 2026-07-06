@@ -1,24 +1,41 @@
 import type { HarnessContext, Tool } from '../types/index'
 
 export function buildReasonPrompt(context: HarnessContext): string {
-  let prompt = `${context.systemPromptBase}\n\n`
-  prompt += `You are executing step ${context.subtask.id} of a multi-step plan.\n`
+  const hasPreviousResults = context.previousSummaries.length > 0
 
-  if (context.previousSummaries.length > 0) {
-    prompt += `\nRESULTS FROM PREVIOUS STEPS (use this data directly):\n`
+  let prompt = context.systemPromptBase + '\n\n'
+  prompt += `You are executing step ${context.subtask.id} of a plan.\n`
+  prompt += `YOUR ONLY JOB: execute this ONE step using the available tools.\n\n`
+
+  if (hasPreviousResults) {
+    prompt += `DATA ALREADY COLLECTED IN PREVIOUS STEPS:\n`
+    prompt += `(This data is real and ready to use — do NOT search for it again)\n`
     prompt += context.previousSummaries.join('\n')
-    prompt += `\n\nCRITICAL: The content above is real data already retrieved. `
-    prompt += `Use it directly — do NOT search for it again or leave content empty.\n`
+    prompt += '\n\n'
   }
 
-  prompt += `\nYOUR CURRENT TASK: ${context.subtask.objective}\n`
-  prompt += `\nAVAILABLE TOOLS:\n`
+  prompt += `CURRENT STEP TO EXECUTE: ${context.subtask.objective}\n\n`
+
+  prompt += `AVAILABLE TOOLS:\n`
   for (const tool of context.tools) {
     const firstLine = tool.description.split('\n')[0]
     prompt += `- ${tool.name}: ${firstLine}\n`
   }
 
-  prompt += `\nReason in natural language about which tool to use and what parameters to provide. Do not restrict yourself to JSON format.`
+  prompt += `\n`
+
+  if (hasPreviousResults) {
+    prompt += `INSTRUCTIONS:\n`
+    prompt += `- Use the data from PREVIOUS STEPS directly — it is already collected\n`
+    prompt += `- Do NOT search for data that already exists in PREVIOUS STEPS\n`
+    prompt += `- Your task is to execute the CURRENT STEP only\n`
+    prompt += `- Reason about which tool to use and what exact parameters to provide\n`
+  } else {
+    prompt += `Reason about which tool to use and what exact parameters to provide.\n`
+  }
+
+  prompt += `Do not produce JSON here — just reason in natural language.`
+
   return prompt
 }
 
