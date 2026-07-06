@@ -1,8 +1,9 @@
-import type { Tool } from '@ezio/core'
+import type { ModelAdapter, Tool } from '@ezio/core'
 import { filesystemTools, filesystemExecutor } from './native/FilesystemTool'
 import { shellTools, shellExecutor } from './native/ShellTool'
 import { webSearchTools, webSearchExecutor } from './native/WebSearchTool'
 import { McpRegistry, createMcpRegistry } from './mcp/McpRegistry'
+import { PostProcessor } from './PostProcessor'
 
 export interface ToolsProviderConfig {
   mcpServers?: Array<{ name: string, url: string, enabled?: boolean }>
@@ -52,6 +53,33 @@ class ToolsProvider {
 
   getToolExecutor(): (name: string, input: Record<string, unknown>) => Promise<string> {
     return this.callTool.bind(this)
+  }
+
+  createToolExecutor(
+    adapter?: ModelAdapter,
+    targetLanguage?: string
+  ): (name: string, input: Record<string, unknown>) => Promise<string> {
+    const baseExecutor = this.getToolExecutor()
+
+    if (!adapter || !targetLanguage || targetLanguage === 'en') {
+      return baseExecutor
+    }
+
+    const postProcessor = new PostProcessor(adapter)
+
+    return async (name: string, input: Record<string, unknown>) => {
+      const result = await baseExecutor(name, input)
+
+      if (
+        name === 'write_file' &&
+        result.startsWith('File written:') &&
+        typeof input.path === 'string'
+      ) {
+        await postProcessor.translateFile(input.path, targetLanguage)
+      }
+
+      return result
+    }
   }
 }
 

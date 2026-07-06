@@ -10,6 +10,12 @@ const RESPONSE_PREFIX = 'ezio: '
 const DEBUG = process.env.EZIO_DEBUG === 'true'
 
 async function main() {
+  const systemLocale = process.env.LANG ?? process.env.LC_ALL ?? 'en'
+  const systemLanguage = systemLocale.split('_')[0].toLowerCase()
+  const targetLanguage = ['es', 'pt', 'fr', 'de', 'it'].includes(systemLanguage)
+    ? systemLanguage
+    : 'en'
+
   let config
   try {
     config = ConfigService.load()
@@ -26,7 +32,7 @@ async function main() {
   const client = new EzioClient({
     adapter,
     tools,
-    toolExecutor: toolsProvider.getToolExecutor()
+    toolExecutor: toolsProvider.createToolExecutor(adapter, targetLanguage)
   })
 
   const { provider, name } = config.model
