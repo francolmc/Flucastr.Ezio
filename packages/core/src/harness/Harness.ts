@@ -24,6 +24,7 @@ export class Harness {
       const retriever = new ToolRetriever(this.adapter, allTools)
       const retrieved = await retriever.retrieve(subtask.objective, 3)
       const toolsForStep = retrieved.length > 0 ? retrieved : allTools.slice(0, 3)
+      console.warn(`[Harness] subtask ${subtask.id} tools:`, toolsForStep.map(t => t.name))
 
       const context: HarnessContext = {
         ...baseContext,
@@ -40,9 +41,13 @@ export class Harness {
 
       let reasonResponse: string | undefined
       try {
+        const userContent = previousSummaries.length > 0
+          ? `${subtask.objective}\n\nDATA FROM PREVIOUS STEPS:\n${previousSummaries.join('\n')}`
+          : subtask.objective
+
         reasonResponse = await this.adapter.complete([
           { role: 'system', content: buildReasonPrompt(context) },
-          { role: 'user', content: subtask.objective }
+          { role: 'user', content: userContent }
         ])
       } catch (err) {
         rawReasoning = ''
@@ -169,6 +174,7 @@ export class Harness {
       ]).catch(() => `Step ${subtask.id} (${toolName}): completed`)
 
       previousSummaries.push(summaryResponse)
+      console.warn(`[Harness] subtask ${subtask.id} summary:\n${summaryResponse.slice(0, 400)}`)
 
       results.push({
         subtaskId: subtask.id,

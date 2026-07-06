@@ -1,18 +1,9 @@
 import type { HarnessContext, Tool } from '../types/index'
 
 export function buildReasonPrompt(context: HarnessContext): string {
-  const hasPreviousResults = context.previousSummaries.length > 0
-
   let prompt = context.systemPromptBase + '\n\n'
   prompt += `You are executing step ${context.subtask.id} of a plan.\n`
   prompt += `YOUR ONLY JOB: execute this ONE step using the available tools.\n\n`
-
-  if (hasPreviousResults) {
-    prompt += `DATA ALREADY COLLECTED IN PREVIOUS STEPS:\n`
-    prompt += `(This data is real and ready to use — do NOT search for it again)\n`
-    prompt += context.previousSummaries.join('\n')
-    prompt += '\n\n'
-  }
 
   prompt += `CURRENT STEP TO EXECUTE: ${context.subtask.objective}\n\n`
 
@@ -23,17 +14,8 @@ export function buildReasonPrompt(context: HarnessContext): string {
   }
 
   prompt += `\n`
-
-  if (hasPreviousResults) {
-    prompt += `INSTRUCTIONS:\n`
-    prompt += `- Use the data from PREVIOUS STEPS directly — it is already collected\n`
-    prompt += `- Do NOT search for data that already exists in PREVIOUS STEPS\n`
-    prompt += `- Your task is to execute the CURRENT STEP only\n`
-    prompt += `- Reason about which tool to use and what exact parameters to provide\n`
-  } else {
-    prompt += `Reason about which tool to use and what exact parameters to provide.\n`
-  }
-
+  prompt += `Reason about which tool to use and what exact parameters to provide.\n`
+  prompt += `If DATA FROM PREVIOUS STEPS is provided in the user message, use that data directly.\n`
   prompt += `Do not produce JSON here — just reason in natural language.`
 
   return prompt
@@ -72,16 +54,20 @@ export function buildSummaryPrompt(
   rawResult: string,
   toolInput: Record<string, unknown>
 ): string {
-  return `Given the result of a subtask, produce a brief summary in ≤3 lines.
+  const truncated = rawResult.slice(0, 1500)
+  return `Given the result of a subtask, produce a brief summary.
 
 TOOL USED: ${tool}
 TOOL INPUT: ${JSON.stringify(toolInput)}
 RAW RESULT:
-${rawResult.slice(0, 2000)}
+${truncated}
 
 Format:
 Step ${subtaskId} (${tool}): {1-line description of what was done}
-Key output: {key value extracted or 'none'}`
+Key output: {copy the first 800 characters of RAW RESULT verbatim}
+
+CRITICAL: Key output MUST contain the actual text from RAW RESULT above.
+Never write "none" if there is any content in RAW RESULT.`
 }
 
 export function buildVerifyPrompt(objective: string, result: string): string {
