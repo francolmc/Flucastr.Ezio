@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@ezio/core": "workspace:*",
     "@ezio/sdk": "workspace:*"
   },
   "devDependencies": {

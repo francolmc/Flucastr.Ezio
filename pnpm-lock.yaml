@@ -26,6 +26,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@ezio/core':
+        specifier: workspace:*
+        version: link:../core
       '@ezio/sdk':
         specifier: workspace:*
         version: link:../sdk

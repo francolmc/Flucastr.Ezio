@@ -10,7 +10,7 @@ export default defineConfig({
       fileName: 'chat'
     },
     rollupOptions: {
-      external: [/^node:/, '@ezio/sdk']
+      external: [/^node:/, '@ezio/core', '@ezio/sdk']
     },
     outDir: 'dist',
     sourcemap: true
