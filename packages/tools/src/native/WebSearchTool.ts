@@ -17,9 +17,27 @@ async function executeWebSearch(
 ): Promise<string> {
   const query = input.query as string
 
+  function extractMainTopic(q: string): string {
+    const stopWords = new Set([
+      'information', 'about', 'what', 'is', 'the', 'a', 'an',
+      'details', 'facts', 'tell', 'me', 'find', 'search', 'for',
+      'data', 'on', 'of', 'in', 'and', 'or', 'how', 'why', 'when',
+      'where', 'who', 'which', 'get', 'look', 'up', 'know'
+    ])
+    const words = q.split(/\s+/)
+    const meaningful = words.filter(w => !stopWords.has(w.toLowerCase()))
+    return meaningful.length > 0 ? meaningful.slice(0, 4).join(' ') : q
+  }
+
+  const cleanQuery = extractMainTopic(query)
+
+  if (process.env.EZIO_DEBUG === 'true') {
+    console.warn(`[WebSearch] query: "${query}" → cleaned: "${cleanQuery}"`)
+  }
+
   // Estrategia 1: DuckDuckGo Instant Answer API
   try {
-    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1&no_redirect=1`
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(cleanQuery)}&format=json&no_html=1&skip_disambig=1&no_redirect=1`
     const response = await fetch(url, {
       headers: { 'Accept': 'application/json' }
     })
@@ -58,7 +76,7 @@ async function executeWebSearch(
 
   // Estrategia 2: SearXNG instancia pública
   try {
-    const searxUrl = `https://searx.be/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=en`
+    const searxUrl = `https://searx.be/search?q=${encodeURIComponent(cleanQuery)}&format=json&categories=general&language=en`
     const response = await fetch(searxUrl, {
       headers: {
         'Accept': 'application/json',
@@ -82,7 +100,7 @@ async function executeWebSearch(
 
   // Estrategia 3: Wikipedia Search API + Summary
   try {
-    const wikiQuery = query.split(' ').slice(0, 3).join(' ')
+    const wikiQuery = cleanQuery.split(' ').slice(0, 3).join(' ')
     const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&format=json&srlimit=1&origin=*`
     const searchResp = await fetch(searchUrl, {
       headers: { 'Accept': 'application/json' }
