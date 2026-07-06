@@ -93,6 +93,35 @@ async function main() {
       continue
     }
 
+    if (trimmed === '/restart') {
+      client.clearHistory()
+      console.log('\nContext cleared.\n')
+      console.log('╭─ Ezio ──────────────────────────╮')
+      console.log(`│  model: ${name} · ${provider}       │`)
+      console.log(`│  tools: ${tools.length} native                   │`)
+      console.log('│  type "exit" to quit            │')
+      console.log('╰─────────────────────────────────╯')
+      console.log()
+      continue
+    }
+
+    if (trimmed === '/context') {
+      const h = client.getHistory()
+      console.log(`Context: ${h.length} messages`)
+      continue
+    }
+
+    if (trimmed === '/help') {
+      console.log('/clear    - clear conversation history')
+      console.log('/context  - show current context size')
+      console.log('/history  - show last 6 messages')
+      console.log('/model    - show active model')
+      console.log('/restart  - clear context and reset')
+      console.log('/help     - show this help')
+      console.log('exit/quit - exit Ezio')
+      continue
+    }
+
     if (trimmed === '') {
       continue
     }
