@@ -6,8 +6,10 @@ export class Verifier {
   constructor(private adapter: ModelAdapter) {}
 
   async verify(objective: string, result: string): Promise<VerifierResult> {
-    const prompt = buildVerifyPrompt(objective, result)
-    const response = await this.adapter.complete([{ role: 'user', content: prompt }])
+    const response = await this.adapter.complete([
+      { role: 'system', content: buildVerifyPrompt(objective, result) },
+      { role: 'user', content: 'Does the result accomplish the objective? Answer YES or NO.' }
+    ])
     const firstLine = response.split('\n')[0].trim().toUpperCase()
 
     if (firstLine.startsWith('YES')) {

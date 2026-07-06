@@ -35,7 +35,10 @@ export class Harness {
 
       let reasonResponse: string | undefined
       try {
-        reasonResponse = await this.adapter.complete([{ role: 'user', content: buildReasonPrompt(context) }])
+        reasonResponse = await this.adapter.complete([
+          { role: 'system', content: buildReasonPrompt(context) },
+          { role: 'user', content: subtask.objective }
+        ])
       } catch (err) {
         rawReasoning = ''
         reasonResponse = undefined
@@ -56,7 +59,8 @@ export class Harness {
 
       let serialized: { tool: string; input: Record<string, unknown> } | null = null
       const serializeResponse = await this.adapter.complete([
-        { role: 'user', content: buildSerializePrompt(rawReasoning, allTools) }
+        { role: 'system', content: buildSerializePrompt(rawReasoning, allTools) },
+        { role: 'user', content: 'Produce the JSON tool call.' }
       ]).catch(() => null)
 
       if (process.env.EZIO_DEBUG === 'true') {
@@ -65,7 +69,8 @@ export class Harness {
 
       if (!serializeResponse) {
         const retryResponse = await this.adapter.complete([
-          { role: 'user', content: buildSerializePrompt(rawReasoning, allTools) + '\n\nCRITICAL: respond with ONLY valid JSON, no additional text.' }
+          { role: 'system', content: buildSerializePrompt(rawReasoning, allTools) },
+          { role: 'user', content: 'CRITICAL: respond with ONLY valid JSON, no additional text.' }
         ]).catch(() => null)
 
         if (!retryResponse) {
@@ -109,15 +114,17 @@ export class Harness {
 
         if (!verification.approved) {
           const retryReasoning = await this.adapter.complete([
-            { role: 'user', content: buildReasonPrompt({
+            { role: 'system', content: buildReasonPrompt({
               ...context,
               previousSummaries: [...previousSummaries, `Previous attempt failed: ${verification.reason}`]
-            }) }
+            }) },
+            { role: 'user', content: subtask.objective }
           ]).catch(() => null)
 
           if (retryReasoning) {
             const retrySerialize = await this.adapter.complete([
-              { role: 'user', content: buildSerializePrompt(retryReasoning, allTools) }
+              { role: 'system', content: buildSerializePrompt(retryReasoning, allTools) },
+              { role: 'user', content: 'Produce the JSON tool call.' }
             ]).catch(() => null)
 
             if (retrySerialize) {
@@ -152,7 +159,8 @@ export class Harness {
       }
 
       const summaryResponse = await this.adapter.complete([
-        { role: 'user', content: buildSummaryPrompt(subtask.id, toolName, rawResult, toolInput) }
+        { role: 'system', content: buildSummaryPrompt(subtask.id, toolName, rawResult, toolInput) },
+        { role: 'user', content: 'Summarize the result above.' }
       ]).catch(() => `Step ${subtask.id} (${toolName}): completed`)
 
       previousSummaries.push(summaryResponse)

@@ -72,23 +72,16 @@ export function buildSummaryPrompt(
   rawResult: string,
   toolInput: Record<string, unknown>
 ): string {
-  const truncated = rawResult.slice(0, 3000)
-  const wasTruncated = rawResult.length > 3000
+  return `Given the result of a subtask, produce a brief summary in ≤3 lines.
 
-  return `Summarize this tool execution for the next step.
+TOOL USED: ${tool}
+TOOL INPUT: ${JSON.stringify(toolInput)}
+RAW RESULT:
+${rawResult.slice(0, 2000)}
 
-Step ${subtaskId} used tool: ${tool}
-Input: ${JSON.stringify(toolInput)}
-
-FULL RESULT (include this verbatim in Key output):
-${truncated}${wasTruncated ? '\n[truncated]' : ''}
-
-Format your summary as:
-Step ${subtaskId} (${tool}): {one line describing what was done}
-Key output: {copy the first 1000 characters of the result verbatim here}
-
-CRITICAL: Key output must contain the ACTUAL content returned by the tool,
-not a description of it. The next step needs this content to work with.`
+Format:
+Step ${subtaskId} (${tool}): {1-line description of what was done}
+Key output: {key value extracted or 'none'}`
 }
 
 export function buildVerifyPrompt(objective: string, result: string): string {
