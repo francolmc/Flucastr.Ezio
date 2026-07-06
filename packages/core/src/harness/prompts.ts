@@ -52,9 +52,14 @@ export function buildSummaryPrompt(
   subtaskId: number,
   tool: string,
   rawResult: string,
-  toolInput: Record<string, unknown>
+  toolInput: Record<string, unknown>,
+  targetLanguage?: string
 ): string {
   const truncated = rawResult.slice(0, 1500)
+  const languageInstruction = targetLanguage && targetLanguage !== 'en'
+    ? `\nWrite the Key output in ${targetLanguage}.`
+    : ''
+
   return `Given the result of a subtask, produce a brief summary.
 
 TOOL USED: ${tool}
@@ -63,11 +68,11 @@ RAW RESULT:
 ${truncated}
 
 Format:
-Step ${subtaskId} (${tool}): {1-line description of what was done}
-Key output: {copy the first 800 characters of RAW RESULT verbatim}
+Step ${subtaskId} (${tool}): {1-line description in English of what was done}
+Key output: {copy and translate the first 800 characters of RAW RESULT}${languageInstruction}
 
-CRITICAL: Key output MUST contain the actual text from RAW RESULT above.
-Never write "none" if there is any content in RAW RESULT.`
+CRITICAL: Key output MUST contain the actual content from RAW RESULT.
+Never write "none" if there is content in RAW RESULT.`
 }
 
 export function buildVerifyPrompt(objective: string, result: string): string {

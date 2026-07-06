@@ -37,6 +37,7 @@ export interface HarnessContext {
   previousSummaries: string[]
   tools: Tool[]
   classification: 'simple' | 'moderate' | 'complex'
+  targetLanguage?: string
 }
 
 export interface CoreInput {
@@ -47,6 +48,7 @@ export interface CoreInput {
   sessionContext?: string
   userProfile?: Fact[]
   isSubAgent?: boolean
+  targetLanguage?: string
 }
 
 export interface CoreOutput {

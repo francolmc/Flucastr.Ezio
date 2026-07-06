@@ -169,7 +169,7 @@ export class Harness {
       }
 
       const summaryResponse = await this.adapter.complete([
-        { role: 'system', content: buildSummaryPrompt(subtask.id, toolName, rawResult, toolInput) },
+        { role: 'system', content: buildSummaryPrompt(subtask.id, toolName, rawResult, toolInput, baseContext.targetLanguage) },
         { role: 'user', content: 'Summarize the result above.' }
       ]).catch(() => `Step ${subtask.id} (${toolName}): completed`)
 

@@ -119,7 +119,8 @@ export class Core {
       {
         systemPromptBase: input.systemPrompt ?? 'You are Ezio, a personal assistant.',
         previousSummaries: [],
-        classification
+        classification,
+        targetLanguage: input.targetLanguage
       },
       toolRegistry,
       input.tools

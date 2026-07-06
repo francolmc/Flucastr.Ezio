@@ -82,7 +82,8 @@ async function executeWebSearch(
 
   // Estrategia 3: Wikipedia Search API + Summary
   try {
-    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=1&origin=*`
+    const wikiQuery = query.split(' ').slice(0, 3).join(' ')
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&format=json&srlimit=1&origin=*`
     const searchResp = await fetch(searchUrl, {
       headers: { 'Accept': 'application/json' }
     })

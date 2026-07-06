@@ -49,10 +49,6 @@ export class EzioClient {
       this.detectedLanguage = detected
     }
 
-    const languageInstruction = this.detectedLanguage !== 'en'
-      ? `\n\nIMPORTANT: The user speaks ${this.detectedLanguage}. When writing content to files, translate and write it in ${this.detectedLanguage}. Your final response to the user must also be in ${this.detectedLanguage}.`
-      : ''
-
     const sessionContext = this.history.length > 0
       ? this.history.slice(-6).map(msg => `${msg.role}: ${msg.content}`).join('\n')
       : undefined
@@ -61,9 +57,10 @@ export class EzioClient {
       message,
       tools: this.tools,
       toolExecutor: this.toolExecutor,
-      systemPrompt: this.systemPrompt + languageInstruction,
+      systemPrompt: this.systemPrompt,
       sessionContext,
-      userProfile: this.userProfile
+      userProfile: this.userProfile,
+      targetLanguage: this.detectedLanguage !== 'en' ? this.detectedLanguage : undefined
     }
 
     const output = await this.core.process(coreInput)
