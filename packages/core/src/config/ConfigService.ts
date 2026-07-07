@@ -1,6 +1,9 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
+import { MigrationRunner } from '../db/MigrationRunner'
 import type { ModelAdapter } from '../adapters/ModelAdapter'
 import { OllamaAdapter } from '../adapters/OllamaAdapter'
 import { AnthropicAdapter } from '../adapters/AnthropicAdapter'
@@ -149,5 +152,22 @@ export class ConfigService {
           model: cfg.model.name ?? 'qwen3:4b'
         })
     }
+  }
+
+  static createDb(dbPath?: string): DatabaseSync {
+    const resolvedPath = dbPath
+      ?? process.env.EZIO_DB_PATH
+      ?? path.join(os.homedir(), '.ezio', 'ezio.db')
+
+    const db = new DatabaseSync(resolvedPath)
+
+    const __filename = fileURLToPath(import.meta.url)
+    const __dirname = path.dirname(__filename)
+    const migrationsDir = path.resolve(__dirname, 'db', 'migrations')
+
+    const runner = new MigrationRunner(db)
+    runner.run(migrationsDir)
+
+    return db
   }
 }

@@ -15,6 +15,7 @@ export interface EzioClientConfig {
   toolExecutor?: (name: string, input: Record<string, unknown>) => Promise<string>
   systemPrompt?: string
   userProfile?: Fact[]
+  db?: import('node:sqlite').DatabaseSync
 }
 
 export class EzioClient {
@@ -29,7 +30,7 @@ export class EzioClient {
 
   constructor(config: EzioClientConfig = {}) {
     const adapter = config.adapter ?? ConfigService.createAdapter()
-    this.core = new Core(adapter)
+    this.core = new Core(adapter, config.db)
     this.history = []
     this.tools = config.tools ?? []
     this.toolExecutor = config.toolExecutor ?? (() => Promise.resolve(''))
