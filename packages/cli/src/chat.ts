@@ -38,9 +38,11 @@ async function main() {
   })
 
   const { provider, name } = config.model
+  const sessionId = client.getSessionId().slice(0, 8)
   console.log('╭─ Ezio ──────────────────────────╮')
   console.log(`│  model: ${name} · ${provider}       │`)
   console.log(`│  tools: ${tools.length} native                   │`)
+  console.log(`│  session: ${sessionId}                 │`)
   console.log('│  type "exit" to quit            │')
   console.log('╰─────────────────────────────────╯')
   console.log()
@@ -101,6 +103,7 @@ async function main() {
       console.log('╭─ Ezio ──────────────────────────╮')
       console.log(`│  model: ${name} · ${provider}       │`)
       console.log(`│  tools: ${tools.length} native                   │`)
+      console.log(`│  session: ${sessionId}                 │`)
       console.log('│  type "exit" to quit            │')
       console.log('╰─────────────────────────────────╯')
       console.log()
@@ -113,12 +116,18 @@ async function main() {
       continue
     }
 
+    if (trimmed === '/session') {
+      console.log(`Session ID: ${client.getSessionId()}`)
+      continue
+    }
+
     if (trimmed === '/help') {
       console.log('/clear    - clear conversation history')
       console.log('/context  - show current context size')
       console.log('/history  - show last 6 messages')
       console.log('/model    - show active model')
       console.log('/restart  - clear context and reset')
+      console.log('/session  - show current session ID')
       console.log('/help     - show this help')
       console.log('exit/quit - exit Ezio')
       continue

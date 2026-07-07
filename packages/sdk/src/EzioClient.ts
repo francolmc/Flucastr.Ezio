@@ -7,6 +7,8 @@ import { Core } from '@ezio/core'
 import { ConfigService } from '@ezio/core'
 import type { CoreInput, CoreOutput, ChatMessage, Tool, Fact } from '@ezio/core'
 import type { ModelAdapter } from '@ezio/core'
+import { createConversationStore, ConversationStore } from '@ezio/core'
+import { randomUUID } from 'node:crypto'
 import { LanguageMiddleware } from './LanguageMiddleware'
 
 export interface EzioClientConfig {
@@ -27,6 +29,10 @@ export class EzioClient {
   private userProfile: Fact[]
   private languageMiddleware: LanguageMiddleware
   private detectedLanguage: string = 'en'
+  private store: ConversationStore | null = null
+  private sessionId: string = randomUUID()
+  private turnIndex: number = 0
+  private userId: string = 'default'
 
   constructor(config: EzioClientConfig = {}) {
     const adapter = config.adapter ?? ConfigService.createAdapter()
@@ -37,6 +43,9 @@ export class EzioClient {
     this.systemPrompt = config.systemPrompt ?? 'You are Ezio, a personal assistant.'
     this.userProfile = config.userProfile ?? []
     this.languageMiddleware = new LanguageMiddleware(adapter)
+    if (config.db) {
+      this.store = createConversationStore(config.db)
+    }
   }
 
   async send(message: string): Promise<string> {
@@ -81,6 +90,22 @@ export class EzioClient {
     this.history.push({ role: 'user', content: message })
     this.history.push({ role: 'assistant', content: output.response })
 
+    if (this.store) {
+      this.store.saveTurn({
+        userId: this.userId,
+        sessionId: this.sessionId,
+        userMessage: message,
+        ezioResponse: finalResponse,
+        toolsUsed: output.stepResults.map(s => s.tool),
+        toolResults: output.stepResults.map(s => ({
+          tool: s.tool,
+          result: s.rawResult.slice(0, 500)
+        })),
+        turnIndex: this.turnIndex++,
+        timestamp: Date.now()
+      })
+    }
+
     return { ...output, response: finalResponse }
   }
 
@@ -90,5 +115,20 @@ export class EzioClient {
 
   clearHistory(): void {
     this.history = []
+  }
+
+  loadSession(sessionId: string): void {
+    if (!this.store) return
+    this.sessionId = sessionId
+    const turns = this.store.getTurns(this.userId, sessionId, 20)
+    this.history = turns.flatMap(t => [
+      { role: 'user' as const, content: t.userMessage },
+      { role: 'assistant' as const, content: t.ezioResponse }
+    ])
+    this.turnIndex = turns.length
+  }
+
+  getSessionId(): string {
+    return this.sessionId
   }
 }
