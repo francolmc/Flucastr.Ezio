@@ -1,5 +1,6 @@
 import type { ModelAdapter } from '../adapters/ModelAdapter'
 import type { ChatMessage } from '../adapters/ModelAdapter'
+import { createLogger } from '../utils/Logger'
 
 interface ClassificationResult {
   level: 'simple' | 'moderate' | 'complex'
@@ -7,6 +8,8 @@ interface ClassificationResult {
 }
 
 export class Classifier {
+  private logger = createLogger('Classifier')
+
   constructor(private adapter: ModelAdapter) {}
 
   async classify(message: string, sessionContext?: string): Promise<ClassificationResult> {
@@ -54,10 +57,10 @@ Respond with ONLY valid JSON:
         return parsed
       }
 
-      console.warn('[Classifier] Parse failed, defaulting to simple')
+      this.logger.warn('Parse failed, defaulting to simple')
       return { level: 'simple', reason: 'parse error, defaulting to simple' }
     } catch (err) {
-      console.warn('[Classifier] Error:', err)
+      this.logger.warn('Error:', err)
       return { level: 'simple', reason: 'error, defaulting to simple' }
     }
   }

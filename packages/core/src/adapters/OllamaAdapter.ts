@@ -1,4 +1,4 @@
-import type { ChatMessage, ModelAdapter } from './ModelAdapter'
+import type { ChatMessage, ModelAdapter, CompletionOptions } from './ModelAdapter'
 
 export interface OllamaConfig {
   baseUrl: string
@@ -8,14 +8,15 @@ export interface OllamaConfig {
 export class OllamaAdapter implements ModelAdapter {
   constructor(private config: OllamaConfig) {}
 
-  async complete(messages: ChatMessage[]): Promise<string> {
+  async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<string> {
     const response = await fetch(`${this.config.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: this.config.model,
         messages,
-        stream: false
+        stream: false,
+        options: { temperature: options?.temperature ?? 0.7 }
       })
     })
 

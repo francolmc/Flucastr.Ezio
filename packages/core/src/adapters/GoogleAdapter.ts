@@ -1,4 +1,4 @@
-import type { ChatMessage, ModelAdapter } from './ModelAdapter'
+import type { ChatMessage, ModelAdapter, CompletionOptions } from './ModelAdapter'
 
 export interface GoogleConfig {
   apiKey: string
@@ -8,7 +8,7 @@ export interface GoogleConfig {
 export class GoogleAdapter implements ModelAdapter {
   constructor(private config: GoogleConfig) {}
 
-  async complete(messages: ChatMessage[]): Promise<string> {
+  async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<string> {
     const systemMessage = messages.find(m => m.role === 'system')
     const conversationMessages = messages.filter(m => m.role !== 'system')
 
@@ -20,6 +20,7 @@ export class GoogleAdapter implements ModelAdapter {
     const requestBody: {
       contents: { role: string; parts: { text: string }[] }[]
       systemInstruction?: { parts: { text: string }[] }
+      generationConfig?: { temperature: number }
     } = { contents }
 
     if (systemMessage) {
@@ -27,6 +28,8 @@ export class GoogleAdapter implements ModelAdapter {
         parts: [{ text: systemMessage.content }]
       }
     }
+
+    requestBody.generationConfig = { temperature: options?.temperature ?? 0.7 }
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.config.model}:generateContent?key=${this.config.apiKey}`
 

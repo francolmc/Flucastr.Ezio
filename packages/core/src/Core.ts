@@ -3,6 +3,7 @@ import type { ModelAdapter } from './adapters/ModelAdapter'
 import { Harness } from './harness/Harness'
 import { Classifier } from './planner/Classifier'
 import { createRitosService, type RitosService } from './memory/Ritos'
+import { createLogger } from './utils/Logger'
 import {
   buildUnderstandPrompt,
   buildPlanPrompt,
@@ -16,6 +17,7 @@ export class Core {
   private harness: Harness
   private classifier: Classifier
   private ritosService: RitosService | null = null
+  private logger = createLogger('Core')
 
   constructor(
     private adapter: ModelAdapter,
@@ -47,7 +49,7 @@ export class Core {
         'USER: ' + input.message
       ].filter(Boolean).join('\n\n')
 
-      const response = await this.adapter.complete([{ role: 'user', content: parts }])
+      const response = await this.adapter.complete([{ role: 'user', content: parts }], { temperature: 0.3 })
       return { response, stepResults: [], classification }
     }
 
@@ -65,7 +67,7 @@ export class Core {
     const understanding = await this.adapter.complete([{
       role: 'user',
       content: buildUnderstandPrompt(input.message, input.userProfile ?? [], input.sessionContext, systemContext)
-    }])
+    }], { temperature: 0 })
 
     // PASO 4 — Buscar Rito (solo COMPLEX)
     let ritoGuia: string | undefined
@@ -78,13 +80,13 @@ export class Core {
     const planText = await this.adapter.complete([{
       role: 'user',
       content: buildPlanPrompt(understanding, input.tools, input.sessionContext, ritoGuia, systemContext)
-    }])
+    }], { temperature: 0 })
 
     if (planText.trim() === 'NO_STEPS') {
       const response = await this.adapter.complete([{
         role: 'user',
         content: buildRespondPrompt(input.message, understanding, [], input.userProfile ?? [])
-      }])
+      }], { temperature: 0.3 })
       return { response, stepResults: [], classification }
     }
 
@@ -104,11 +106,11 @@ export class Core {
 
     // Si no se parsearon pasos, respuesta directa
     if (subtasks.length === 0) {
-      console.warn('[Core] Plan parsed 0 subtasks. planText was:\n', planText.slice(0, 500))
+      this.logger.warn('Plan parsed 0 subtasks. planText was:\n', planText.slice(0, 500))
       const response = await this.adapter.complete([{
         role: 'user',
         content: buildRespondPrompt(input.message, understanding, [], input.userProfile ?? [])
-      }])
+      }], { temperature: 0.3 })
       return { response, stepResults: [], classification }
     }
 
@@ -135,7 +137,7 @@ export class Core {
           understanding,
           stepResults.map(r => ({ summary: r.summary, status: r.status }))
         )
-      }])
+      }], { temperature: 0 })
       const firstBrace = examineRaw.indexOf('{')
       const lastBrace = examineRaw.lastIndexOf('}')
       if (firstBrace !== -1 && lastBrace !== -1) {
@@ -158,16 +160,16 @@ export class Core {
         input.userProfile ?? [],
         gapContext
       )
-    }])
+    }], { temperature: 0.3 })
 
     // PASO 10 — Guardar Rito en background
     if (classification === 'complex' && stepResults.every(r => r.status === 'ok') && this.ritosService) {
       this.adapter.complete([{
         role: 'user',
         content: `Generate a brief guidance (max 3 sentences) describing how to structure this type of problem. Focus on the approach, not on specific paths or identifiers. Objective: ${understanding}`
-      }])
+      }], { temperature: 0 })
       .then(guia => this.ritosService!.saveRito('default', understanding, stepResults.map(r => r.tool), stepResults.map(r => r.summary).join('\n'), guia))
-      .catch(e => console.warn('[Core] saveRito error:', e))
+      .catch(e => this.logger.warn('saveRito error:', e))
     }
 
     return { response, stepResults, classification }

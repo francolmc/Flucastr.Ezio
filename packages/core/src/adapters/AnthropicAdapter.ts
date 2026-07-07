@@ -1,4 +1,4 @@
-import type { ChatMessage, ModelAdapter } from './ModelAdapter'
+import type { ChatMessage, ModelAdapter, CompletionOptions } from './ModelAdapter'
 
 export interface AnthropicConfig {
   apiKey: string
@@ -8,7 +8,7 @@ export interface AnthropicConfig {
 export class AnthropicAdapter implements ModelAdapter {
   constructor(private config: AnthropicConfig) {}
 
-  async complete(messages: ChatMessage[]): Promise<string> {
+  async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<string> {
     const systemMessage = messages.find(m => m.role === 'system')
     const conversationMessages = messages.filter(m => m.role !== 'system')
 
@@ -16,11 +16,13 @@ export class AnthropicAdapter implements ModelAdapter {
       model: string
       messages: { role: string; content: string }[]
       max_tokens: number
+      temperature: number
       system?: string
     } = {
       model: this.config.model,
       messages: conversationMessages.map(m => ({ role: m.role, content: m.content })),
-      max_tokens: 4096
+      max_tokens: 4096,
+      temperature: options?.temperature ?? 0.7
     }
 
     if (systemMessage) {

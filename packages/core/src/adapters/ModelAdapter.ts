@@ -3,6 +3,11 @@ export interface ChatMessage {
   content: string
 }
 
+export interface CompletionOptions {
+  temperature?: number
+  maxTokens?: number
+}
+
 export interface ModelAdapter {
-  complete(messages: ChatMessage[]): Promise<string>
+  complete(messages: ChatMessage[], options?: CompletionOptions): Promise<string>
 }

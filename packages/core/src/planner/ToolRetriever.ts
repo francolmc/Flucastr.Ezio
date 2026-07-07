@@ -1,8 +1,10 @@
 import type { ModelAdapter } from '../adapters/ModelAdapter'
 import type { Tool } from '../types/index'
 import type { ChatMessage } from '../adapters/ModelAdapter'
+import { createLogger } from '../utils/Logger'
 
 export class ToolRetriever {
+  private logger = createLogger('ToolRetriever')
   constructor(private adapter: ModelAdapter, private tools: Tool[]) {}
 
   async retrieve(objective: string, maxTools = 5): Promise<Tool[]> {
@@ -57,7 +59,7 @@ Respond with ONLY tool names separated by commas, nothing else.`
 
       return result
     } catch (err) {
-      console.warn('[ToolRetriever] Error:', err)
+      this.logger.warn('Error:', err)
       return filteredTools.slice(0, maxTools)
     }
   }

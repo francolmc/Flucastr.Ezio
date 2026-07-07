@@ -1,4 +1,4 @@
-import type { ChatMessage, ModelAdapter } from './ModelAdapter'
+import type { ChatMessage, ModelAdapter, CompletionOptions } from './ModelAdapter'
 
 export interface OpenAIConfig {
   apiKey: string
@@ -9,7 +9,7 @@ export interface OpenAIConfig {
 export class OpenAIAdapter implements ModelAdapter {
   constructor(private config: OpenAIConfig) {}
 
-  async complete(messages: ChatMessage[]): Promise<string> {
+  async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<string> {
     const baseUrl = this.config.baseUrl ?? 'https://api.openai.com/v1'
 
     const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -21,7 +21,8 @@ export class OpenAIAdapter implements ModelAdapter {
       body: JSON.stringify({
         model: this.config.model,
         messages,
-        max_tokens: 4096
+        max_tokens: 4096,
+        temperature: options?.temperature ?? 0.7
       })
     })
 

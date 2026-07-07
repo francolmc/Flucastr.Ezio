@@ -3,9 +3,11 @@ import type { Tool, ToolRegistry, Subtask, StepResult, HarnessContext } from '..
 import { Verifier } from './Verifier'
 import { ToolRetriever } from '../planner/ToolRetriever'
 import { buildReasonPrompt, buildSerializePrompt, buildSummaryPrompt } from './prompts'
+import { createLogger } from '../utils/Logger'
 
 export class Harness {
   private verifier: Verifier
+  private logger = createLogger('Harness')
 
   constructor(private adapter: ModelAdapter) {
     this.verifier = new Verifier(adapter)
@@ -24,7 +26,7 @@ export class Harness {
       const retriever = new ToolRetriever(this.adapter, allTools)
       const retrieved = await retriever.retrieve(subtask.objective, 3)
       const toolsForStep = retrieved.length > 0 ? retrieved : allTools.slice(0, 3)
-      console.warn(`[Harness] subtask ${subtask.id} tools:`, toolsForStep.map(t => t.name))
+      this.logger.debug(`subtask ${subtask.id} tools:`, toolsForStep.map(t => t.name))
 
       const context: HarnessContext = {
         ...baseContext,
@@ -33,7 +35,7 @@ export class Harness {
       }
 
       const estimatedPrompt = buildReasonPrompt(context)
-      console.warn(`[Harness] subtask ${subtask.id} tokens: ~${Math.ceil(estimatedPrompt.length / 4)}`)
+      this.logger.debug(`subtask ${subtask.id} tokens: ~${Math.ceil(estimatedPrompt.length / 4)}`)
 
       let rawReasoning: string
       let status: 'ok' | 'failed' = 'ok'
@@ -48,7 +50,7 @@ export class Harness {
         reasonResponse = await this.adapter.complete([
           { role: 'system', content: buildReasonPrompt(context) },
           { role: 'user', content: userContent }
-        ])
+        ], { temperature: 0 })
       } catch (err) {
         rawReasoning = ''
         reasonResponse = undefined
@@ -63,25 +65,21 @@ export class Harness {
       }
       rawReasoning = reasonResponse
 
-      if (process.env.EZIO_DEBUG === 'true') {
-        console.warn(`[Harness] subtask ${subtask.id} reasoning:\n${rawReasoning.slice(0, 300)}`)
-      }
+      this.logger.debug(`subtask ${subtask.id} reasoning:\n${rawReasoning.slice(0, 300)}`)
 
       let serialized: { tool: string; input: Record<string, unknown> } | null = null
       const serializeResponse = await this.adapter.complete([
         { role: 'system', content: buildSerializePrompt(rawReasoning, toolsForStep) },
         { role: 'user', content: 'Produce the JSON tool call.' }
-      ]).catch(() => null)
+      ], { temperature: 0 }).catch(() => null)
 
-      if (process.env.EZIO_DEBUG === 'true') {
-        console.warn(`[Harness] subtask ${subtask.id} serialize raw:\n${serializeResponse?.slice(0, 300)}`)
-      }
+      this.logger.debug(`subtask ${subtask.id} serialize raw:\n${serializeResponse?.slice(0, 300)}`)
 
       if (!serializeResponse) {
         const retryResponse = await this.adapter.complete([
           { role: 'system', content: buildSerializePrompt(rawReasoning, toolsForStep) },
           { role: 'user', content: 'CRITICAL: respond with ONLY valid JSON, no additional text.' }
-        ]).catch(() => null)
+        ], { temperature: 0 }).catch(() => null)
 
         if (!retryResponse) {
           status = 'failed'
@@ -95,9 +93,7 @@ export class Harness {
         serialized = this.parseJson(serializeResponse)
       }
 
-      if (process.env.EZIO_DEBUG === 'true') {
-        console.warn(`[Harness] subtask ${subtask.id} parsed:`, JSON.stringify(serialized))
-      }
+      this.logger.debug(`subtask ${subtask.id} parsed:`, JSON.stringify(serialized))
 
       if (!serialized) {
         status = 'failed'
@@ -115,9 +111,7 @@ export class Harness {
         rawResult = err instanceof Error ? err.message : String(err)
       }
 
-      if (process.env.EZIO_DEBUG === 'true') {
-        console.warn(`[Harness] subtask ${subtask.id} tool=${toolName} result:\n${rawResult.slice(0, 200)}`)
-      }
+      this.logger.debug(`subtask ${subtask.id} tool=${toolName} result:\n${rawResult.slice(0, 200)}`)
 
       if (baseContext.classification === 'complex') {
         const verification = await this.verifier.verify(subtask.objective, rawResult)
@@ -129,13 +123,13 @@ export class Harness {
               previousSummaries: [...previousSummaries, `Previous attempt failed: ${verification.reason}`]
             }) },
             { role: 'user', content: subtask.objective }
-          ]).catch(() => null)
+          ], { temperature: 0 }).catch(() => null)
 
           if (retryReasoning) {
             const retrySerialize = await this.adapter.complete([
               { role: 'system', content: buildSerializePrompt(retryReasoning, toolsForStep) },
               { role: 'user', content: 'Produce the JSON tool call.' }
-            ]).catch(() => null)
+            ], { temperature: 0 }).catch(() => null)
 
             if (retrySerialize) {
               const retryParsed = this.parseJson(retrySerialize)
@@ -171,10 +165,10 @@ export class Harness {
       const summaryResponse = await this.adapter.complete([
         { role: 'system', content: buildSummaryPrompt(subtask.id, toolName, rawResult, toolInput, baseContext.targetLanguage) },
         { role: 'user', content: 'Summarize the result above.' }
-      ]).catch(() => `Step ${subtask.id} (${toolName}): completed`)
+      ], { temperature: 0 }).catch(() => `Step ${subtask.id} (${toolName}): completed`)
 
       previousSummaries.push(summaryResponse)
-      console.warn(`[Harness] subtask ${subtask.id} summary:\n${summaryResponse.slice(0, 400)}`)
+      this.logger.debug(`subtask ${subtask.id} summary:\n${summaryResponse.slice(0, 400)}`)
 
       results.push({
         subtaskId: subtask.id,
