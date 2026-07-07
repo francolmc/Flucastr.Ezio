@@ -8,8 +8,12 @@ import { ConfigService } from '@ezio/core'
 import type { CoreInput, CoreOutput, ChatMessage, Tool, Fact } from '@ezio/core'
 import type { ModelAdapter } from '@ezio/core'
 import { createConversationStore, ConversationStore } from '@ezio/core'
+import { createFactsStore, FactsStore, createFactExtractor, FactExtractor } from '@ezio/core'
+import { createLogger } from '@ezio/core'
 import { randomUUID } from 'node:crypto'
 import { LanguageMiddleware } from './LanguageMiddleware'
+
+const logger = createLogger('EzioClient')
 
 export interface EzioClientConfig {
   adapter?: ModelAdapter
@@ -30,6 +34,8 @@ export class EzioClient {
   private languageMiddleware: LanguageMiddleware
   private detectedLanguage: string = 'en'
   private store: ConversationStore | null = null
+  private factsStore: FactsStore | null = null
+  private factExtractor: FactExtractor | null = null
   private sessionId: string = randomUUID()
   private turnIndex: number = 0
   private userId: string = 'default'
@@ -45,6 +51,8 @@ export class EzioClient {
     this.languageMiddleware = new LanguageMiddleware(adapter)
     if (config.db) {
       this.store = createConversationStore(config.db)
+      this.factsStore = createFactsStore(config.db)
+      this.factExtractor = createFactExtractor(adapter, this.factsStore)
     }
   }
 
@@ -63,13 +71,17 @@ export class EzioClient {
       ? this.history.slice(-6).map(msg => `${msg.role}: ${msg.content}`).join('\n')
       : undefined
 
+    const userProfile = this.factsStore
+      ? this.factsStore.buildMemoryBlock(this.userId)
+      : (this.userProfile ?? [])
+
     const coreInput: CoreInput = {
       message,
       tools: this.tools,
       toolExecutor: this.toolExecutor,
       systemPrompt: this.systemPrompt,
       sessionContext,
-      userProfile: this.userProfile,
+      userProfile,
       targetLanguage: this.detectedLanguage !== 'en' ? this.detectedLanguage : undefined
     }
 
@@ -106,6 +118,12 @@ export class EzioClient {
       })
     }
 
+    if (this.factExtractor) {
+      this.factExtractor
+        .extract(this.userId, message, finalResponse)
+        .catch(e => logger.warn('FactExtractor error:', String(e)))
+    }
+
     return { ...output, response: finalResponse }
   }
 
@@ -130,5 +148,9 @@ export class EzioClient {
 
   getSessionId(): string {
     return this.sessionId
+  }
+
+  getFacts(): Fact[] {
+    return this.factsStore?.getAllFacts(this.userId) ?? []
   }
 }

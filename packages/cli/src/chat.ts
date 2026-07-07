@@ -121,9 +121,20 @@ async function main() {
       continue
     }
 
+    if (trimmed === '/facts') {
+      const facts = client.getFacts()
+      if (facts.length === 0) {
+        console.log('No facts stored yet.')
+      } else {
+        facts.forEach(f => console.log(`  ${f.key}: ${f.value}`))
+      }
+      continue
+    }
+
     if (trimmed === '/help') {
       console.log('/clear    - clear conversation history')
       console.log('/context  - show current context size')
+      console.log('/facts    - show what Ezio remembers about you')
       console.log('/history  - show last 6 messages')
       console.log('/model    - show active model')
       console.log('/restart  - clear context and reset')
