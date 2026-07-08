@@ -1,5 +1,73 @@
 import type { HarnessContext, Tool } from '../types/index'
 
+export function buildDoneCheckPrompt(
+  objective: string,
+  previousStepResult: string | null,
+  workingStateBlock: string
+): string {
+  return `You are a task completion evaluator.
+
+OBJECTIVE: ${objective}
+
+${workingStateBlock}
+
+${previousStepResult
+  ? `LAST ACTION RESULT:\n${previousStepResult}`
+  : 'No actions taken yet.'}
+
+IMPORTANT: The WORKING STATE above is maintained by the system and is always accurate. If WORKING STATE shows files found with a count, those files HAVE been listed successfully. Trust the count in WORKING STATE.
+
+Has the OBJECTIVE been fully accomplished?
+Answer ONLY "YES" or "NO" on the first line.
+Then one sentence explaining why.
+
+Rules:
+- YES only if ALL parts of the objective are complete
+- Use the WORKING STATE above to verify what has been done
+- NO if anything is still pending`
+}
+
+export function buildStepReasonPrompt(
+  objective: string,
+  systemPromptBase: string,
+  tools: Tool[],
+  previousStepResult: string | null,
+  workingStateBlock: string,
+  memoryContext: string | null,
+  systemContext?: string
+): string {
+  const toolList = tools
+    .map(t => `- ${t.name}: ${t.description.split('\n')[0]}`)
+    .join('\n')
+
+  let prompt = `${systemPromptBase}\n\n`
+  prompt += `OBJECTIVE: ${objective}\n\n`
+
+  if (systemContext) {
+    prompt += `SYSTEM CONTEXT:\n${systemContext}\n\n`
+  }
+
+  prompt += `${workingStateBlock}\n\n`
+
+  if (memoryContext) {
+    prompt += `${memoryContext}\n\n`
+    prompt += `CRITICAL: Do NOT repeat actions for data `
+    prompt += `already tracked in WORKING STATE above.\n\n`
+  }
+
+  if (previousStepResult) {
+    prompt += `LAST ACTION RESULT:\n${previousStepResult}\n\n`
+  }
+
+  prompt += `AVAILABLE TOOLS:\n${toolList}\n\n`
+
+  prompt += `TASK: What is the single next action to make progress?
+Use WORKING STATE to understand what has been done and what remains.
+Reason in natural language. Do NOT produce JSON here.`
+
+  return prompt
+}
+
 export function buildReasonPrompt(context: HarnessContext): string {
   let prompt = context.systemPromptBase + '\n\n'
   prompt += `You are executing step ${context.subtask.id} of a plan.\n`
@@ -22,26 +90,40 @@ export function buildReasonPrompt(context: HarnessContext): string {
 }
 
 export function buildSerializePrompt(reasoning: string, tools: Tool[]): string {
-  let prompt = `Convert the reasoning below into a JSON tool call.
+  let prompt = `Convert the reasoning into a JSON tool call.
 
 REASONING:
 ${reasoning}
 
-TOOL SCHEMAS (use ONLY these exact parameter names):
+AVAILABLE TOOLS (use ONLY these exact parameter names):
 `
   for (const tool of tools) {
-    const props = (tool.inputSchema as Record<string, unknown>)?.properties as Record<string, Record<string, string>> ?? {}
-    const required = ((tool.inputSchema as Record<string, unknown>)?.required as string[]) ?? []
-    const paramList = required.map(p => `"${p}": ${props[p]?.type ?? 'string'}`).join(', ')
-    prompt += `- ${tool.name}({ ${paramList} })\n`
+    const props = (tool.inputSchema as any)?.properties ?? {}
+    const required = ((tool.inputSchema as any)?.required as string[]) ?? []
+    const optional = Object.keys(props).filter(k => !required.includes(k))
+
+    prompt += `\n${tool.name}:\n`
+    if (required.length > 0) {
+      prompt += `  required: ${required.map(p => `"${p}": ${props[p]?.type ?? 'string'}`).join(', ')}\n`
+    }
+    if (optional.length > 0) {
+      prompt += `  optional: ${optional.map(p => `"${p}": ${props[p]?.type ?? 'string'}`).join(', ')}\n`
+    }
   }
 
   prompt += `
 RULES:
 - Respond with ONLY a JSON object — no markdown, no explanation
-- Use the EXACT parameter names shown above — never invent new ones
-- For content parameters: copy the actual content from the reasoning — never use placeholder strings like "search_results" or "content_here"
-- If the reasoning mentions specific text, data, or results — that text IS the content value
+- Use EXACT parameter names shown above
+- String values must be in double quotes
+- Array values must use JSON format: ["item1", "item2"]
+- Never use single quotes or unquoted values
+
+EXAMPLES of valid JSON:
+  {"tool": "memory_set", "input": {"key": "my_files", "value": "file1.zip, file2.zip"}}
+  {"tool": "list_directory", "input": {"path": "/Users/franco/Downloads", "filter": "*.zip"}}
+  {"tool": "create_directory", "input": {"path": "/Users/franco/Downloads/Comprimidos"}}
+  {"tool": "move_file", "input": {"source": "/path/file.zip", "destination": "/path/dir/"}}
 
 Format: {"tool": "tool_name", "input": {"param": "value"}}`
 
@@ -57,6 +139,7 @@ export function buildSummaryPrompt(
 ): string {
   const isEmpty = rawResult.trim().length === 0
   const truncated = rawResult.slice(0, 1500)
+  const keyOutputLimit = tool === 'list_directory' ? 3000 : 800
   const languageInstruction = targetLanguage && targetLanguage !== 'en'
     ? `\nWrite the Key output in ${targetLanguage}.`
     : ''
@@ -70,7 +153,7 @@ ${isEmpty ? '(empty — the tool returned no content)' : truncated}
 
 Format:
 Step ${subtaskId} (${tool}): {1-line description of what was done}
-Key output: ${isEmpty ? 'none (result was empty)' : '{copy first 800 chars of RAW RESULT verbatim}'}${languageInstruction}
+Key output: ${isEmpty ? 'none (result was empty)' : `{copy first ${keyOutputLimit} chars of RAW RESULT verbatim}`}${languageInstruction}
 
 CRITICAL:
 - If RAW RESULT is empty, Key output MUST be "none (result was empty)"

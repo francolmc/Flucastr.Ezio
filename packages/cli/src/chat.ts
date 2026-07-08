@@ -180,19 +180,44 @@ async function main() {
       continue
     }
 
-    process.stdout.write('...')
-    try {
-      const result = await client.resolve(line)
-      process.stdout.write('\r' + ' '.repeat(4) + '\r')
-      console.log(`${RESPONSE_PREFIX}${result.response}`)
+      process.stdout.write('...')
+      try {
+        const result = await client.resolve(line)
+        process.stdout.write('\r' + ' '.repeat(4) + '\r')
+        console.log(`${RESPONSE_PREFIX}${result.response}`)
 
-      if (DEBUG) {
-        const steps = result.stepResults
-        const stepStatuses = steps.map((s, i) => `step${i + 1}=${s.status}`).join(' ')
-        console.log(`[debug] classification=${result.classification} steps=${steps.length} ${stepStatuses}`)
-      }
+        const ws = result.workingStateData
+        if (ws) {
+          for (const [key, files] of Object.entries(ws.trackedFiles)) {
+            if (files.length === 0) continue
+            const label = key.split(':')[1] ?? key
+            console.log(`\n📁 Archivos [${label}] — ${files.length} en total:`)
+            files.forEach((f, i) => console.log(`   ${i + 1}. ${f}`))
+          }
 
-      console.log('')
+          if (ws.createdDirectories.length > 0) {
+            console.log(`\n✓ Carpetas creadas:`)
+            ws.createdDirectories.forEach(d => console.log(`   ${d}`))
+          }
+
+          if (ws.movedFiles.length > 0) {
+            console.log(`\n✓ Archivos movidos:`)
+            ws.movedFiles.forEach(f => console.log(`   ${f}`))
+          }
+
+          if (ws.writtenFiles.length > 0) {
+            console.log(`\n✓ Archivos escritos:`)
+            ws.writtenFiles.forEach(f => console.log(`   ${f}`))
+          }
+        }
+
+        if (DEBUG) {
+          const steps = result.stepResults
+          const stepStatuses = steps.map((s, i) => `step${i + 1}=${s.status}`).join(' ')
+          console.log(`[debug] classification=${result.classification} steps=${steps.length} ${stepStatuses}`)
+        }
+
+        console.log('')
     } catch (error) {
       process.stdout.write('\r' + ' '.repeat(4) + '\r')
       console.error(`${RESPONSE_PREFIX}Error: ${error instanceof Error ? error.message : error}`)

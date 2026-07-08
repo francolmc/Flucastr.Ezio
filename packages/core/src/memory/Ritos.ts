@@ -51,7 +51,7 @@ export class RitosService {
     const now = Date.now()
 
     this.db.exec(
-      `INSERT INTO ritos (id, user_id, objective_text, plan_summary, tools_used, result_summary, guia, uso_count, created_at, updated_at)
+      `INSERT OR IGNORE INTO ritos (id, user_id, objective_text, plan_summary, tools_used, result_summary, guia, uso_count, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       id,
       userId,

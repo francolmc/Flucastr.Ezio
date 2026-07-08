@@ -1,5 +1,17 @@
 export { ChatMessage } from '../adapters/ModelAdapter'
 
+export interface WorkingStateData {
+  objective: string
+  trackedFiles: Record<string, string[]>
+  createdDirectories: string[]
+  movedFiles: string[]
+  writtenFiles: string[]
+  searchResults: string[]
+  lastTool: string
+  lastResult: string
+  stepNumber: number
+}
+
 export interface Fact {
   key: string
   value: string
@@ -33,9 +45,9 @@ export interface StepResult {
 
 export interface HarnessContext {
   systemPromptBase: string
-  subtask: Subtask
+  subtask?: Subtask
   previousSummaries: string[]
-  tools: Tool[]
+  tools?: Tool[]
   classification: 'simple' | 'moderate' | 'complex'
   targetLanguage?: string
 }
@@ -55,6 +67,13 @@ export interface CoreOutput {
   response: string
   stepResults: StepResult[]
   classification: 'simple' | 'moderate' | 'complex'
+  workingStateData?: {
+    trackedFiles: Record<string, string[]>
+    createdDirectories: string[]
+    movedFiles: string[]
+    writtenFiles: string[]
+    searchResults: string[]
+  }
 }
 
 export interface VerifierResult {

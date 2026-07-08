@@ -1,4 +1,4 @@
-import type { Fact, StepResult, Tool } from '../types/index'
+import type { Fact, StepResult } from '../types/index'
 
 export function buildUnderstandPrompt(
   message: string,
@@ -23,49 +23,6 @@ USER MESSAGE: ${message}
     prompt += `\nSYSTEM CONTEXT:\n${systemContext}\n`
   }
   prompt += `\nRespond in a single paragraph in third person, beginning with "The user wants to..." Identify: (1) the main action, (2) the central object or topic, (3) the expected outcome.`
-  return prompt
-}
-
-export function buildPlanPrompt(
-  understanding: string,
-  tools: Tool[],
-  sessionContext?: string,
-  ritoGuia?: string,
-  systemContext?: string
-): string {
-  let prompt = `Create a step-by-step plan to achieve the objective.
-
-UNDERSTANDING: ${understanding}
-`
-  if (systemContext) {
-    prompt += `\nSYSTEM PATHS (use these exact paths — never use relative paths like /Desktop):\n${systemContext}\n`
-  }
-  if (sessionContext) {
-    prompt += `\nCONTEXT:\n${sessionContext}\n`
-  }
-  prompt += `\nAVAILABLE TOOLS:`
-  for (const tool of tools) {
-    prompt += `\n- ${tool.name}: ${tool.description}`
-  }
-  if (ritoGuia) {
-    prompt += `\n\nLEARNING FROM SIMILAR PROBLEMS:\n${ritoGuia}\n(This is guidance only — do not copy it literally. Adapt the approach to the current objective.)`
-  }
-  prompt += `\n\nRules:
-- Each step uses exactly ONE tool
-- Steps must be in execution order  
-- Include exact identifiers (paths, URLs, IDs) in each step
-- Maximum 3 steps for most tasks — only exceed if strictly necessary
-- If no tools are needed: respond with "NO_STEPS"
-- Do NOT add verification, review, or duplicate steps
-
-Format each step as: "N. Use [tool_name] to [action] [identifier]"
-
-Example for "search X and create file Y":
-1. Use web_search to search for X
-2. Use write_file to create /absolute/path/Y.md with the search results
-
-CRITICAL: Keep the plan minimal. 2 steps for search+write tasks.
-Do NOT add extra steps to verify, review, or re-search.`
   return prompt
 }
 
@@ -96,7 +53,8 @@ export function buildRespondPrompt(
   understanding: string,
   stepResults: StepResult[],
   userProfile: Fact[],
-  gapContext?: string
+  gapContext?: string,
+  workingStateData?: Record<string, unknown>
 ): string {
   let prompt = `Generate the final response to the user.
 
@@ -108,6 +66,22 @@ OBJECTIVE: ${understanding}
       prompt += `- ${fact.key}: ${fact.value}\n`
     }
   }
+
+  const trackedFiles = workingStateData?.trackedFiles as Record<string, string[]> | undefined
+  if (trackedFiles && Object.keys(trackedFiles).length > 0) {
+    const totalFiles = Object.values(trackedFiles).reduce((sum, files) => sum + files.length, 0)
+    prompt += `\nDATA AVAILABLE (will be displayed separately by the system):\n`
+    for (const [key, files] of Object.entries(trackedFiles)) {
+      const label = key.split(':')[1] ?? key
+      prompt += `- ${files.length} files matching [${label}]\n`
+    }
+    prompt += `\nINSTRUCTION: The file list will be displayed directly by the system.`
+    prompt += ` Your response should be a SHORT narrative (1-3 sentences) that:`
+    prompt += ` confirms what was found, mentions the total count (${totalFiles} files),`
+    prompt += ` and invites the user to take the next action.`
+    prompt += ` Do NOT list the files yourself.\n`
+  }
+
   prompt += `\nSTEP RESULTS:`
   for (const result of stepResults) {
     const statusTag = result.status === 'ok' ? '[OK]' : '[FAILED]'

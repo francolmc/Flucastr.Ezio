@@ -39,11 +39,13 @@ const write_file: Tool = {
 
 const list_directory: Tool = {
   name: 'list_directory',
-  description: 'List files and directories at the given path',
+  description: 'List files and directories at the given path. Use filter to narrow by extension (e.g. "*.zip"), use limit to cap results.',
   inputSchema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Absolute path to the directory' }
+      path: { type: 'string', description: 'Absolute path to the directory' },
+      filter: { type: 'string', description: 'Optional glob pattern to filter files, e.g. "*.zip" or "*.csv"' },
+      limit: { type: 'number', description: 'Optional max number of results to return (default: all)' }
     },
     required: ['path']
   }
@@ -121,21 +123,59 @@ async function executeWriteFile(input: Record<string, unknown>): Promise<string>
 
 async function executeListDirectory(input: Record<string, unknown>): Promise<string> {
   const dirPath = expandPath(input.path as string)
+
   try {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true })
-    const lines = await Promise.all(entries.map(async entry => {
+    const filterExt = (input.filter as string | undefined)
+      ?.replace('*', '')
+      .toLowerCase()
+
+    const limit = input.limit as number | undefined
+
+    const allEntries = await fs.readdir(dirPath, { withFileTypes: true })
+
+    let entries = filterExt
+      ? allEntries.filter(e =>
+          e.isDirectory() || e.name.toLowerCase().endsWith(filterExt)
+        )
+      : allEntries
+
+    if (limit && limit > 0) {
+      entries = entries.slice(0, limit)
+    }
+
+    const lines: string[] = []
+
+    for (const entry of entries) {
       if (entry.isDirectory()) {
-        return `[DIR]  ${entry.name}/`
+        lines.push(`[DIR]  ${entry.name}/`)
       } else {
-        const fullPath = path.join(dirPath, entry.name)
-        const stat = await fs.stat(fullPath)
-        return `[FILE] ${entry.name}  (${stat.size} bytes)`
+        if (filterExt) {
+          lines.push(`[FILE] ${entry.name}`)
+        } else {
+          try {
+            const fullPath = path.join(dirPath, entry.name)
+            const stat = await fs.stat(fullPath)
+            lines.push(`[FILE] ${entry.name}  (${stat.size} bytes)`)
+          } catch {
+            lines.push(`[FILE] ${entry.name}`)
+          }
+        }
       }
-    }))
+    }
+
+    const totalFiltered = filterExt
+      ? allEntries.filter(e => e.isFile() && e.name.toLowerCase().endsWith(filterExt)).length
+      : allEntries.length
+
+    lines.push(`\nTotal: ${entries.length} items${filterExt ? ` (${totalFiltered} files matching ${filterExt})` : ''}`)
+
     return lines.join('\n')
+
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return `Error: directory not found at '${dirPath}'`
+    if (error instanceof Error && 'code' in error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return `Error: directory not found at '${dirPath}'`
+      }
     }
     return `Error listing directory: ${error instanceof Error ? error.message : String(error)}`
   }
@@ -153,7 +193,21 @@ async function executeCreateDirectory(input: Record<string, unknown>): Promise<s
 
 async function executeMoveFile(input: Record<string, unknown>): Promise<string> {
   const source = expandPath(input.source as string)
-  const destination = expandPath(input.destination as string)
+  let destination = expandPath(input.destination as string)
+
+  const srcBasename = path.basename(source)
+
+  try {
+    const destStat = await fs.stat(destination)
+    if (destStat.isDirectory()) {
+      destination = path.join(destination, srcBasename)
+    }
+  } catch {
+    if ((input.destination as string).endsWith('/')) {
+      destination = path.join(destination, srcBasename)
+    }
+  }
+
   try {
     await fs.rename(source, destination)
     return `Moved: ${source} → ${destination}`

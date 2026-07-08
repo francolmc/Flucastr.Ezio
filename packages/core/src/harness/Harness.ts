@@ -1,187 +1,202 @@
 import type { ModelAdapter } from '../adapters/ModelAdapter'
-import type { Tool, ToolRegistry, Subtask, StepResult, HarnessContext } from '../types/index'
-import { Verifier } from './Verifier'
+import type { Tool, ToolRegistry, StepResult } from '../types/index'
 import { ToolRetriever } from '../planner/ToolRetriever'
-import { buildReasonPrompt, buildSerializePrompt, buildSummaryPrompt } from './prompts'
+import { buildDoneCheckPrompt, buildStepReasonPrompt, buildSerializePrompt, buildSummaryPrompt } from './prompts'
 import { createLogger } from '../utils/Logger'
+import { WorkingMemory } from './WorkingMemory'
+import { WorkingState } from './WorkingState'
 
 export class Harness {
-  private verifier: Verifier
   private logger = createLogger('Harness')
 
-  constructor(private adapter: ModelAdapter) {
-    this.verifier = new Verifier(adapter)
-  }
+  constructor(private adapter: ModelAdapter) {}
 
   async run(
-    subtasks: Subtask[],
-    baseContext: Omit<HarnessContext, 'subtask' | 'tools'>,
+    objective: string,
+    baseContext: {
+      systemPromptBase: string
+      classification: string
+      targetLanguage?: string
+      systemContext?: string
+    },
     toolRegistry: ToolRegistry,
-    allTools: Tool[]
-  ): Promise<StepResult[]> {
+    allTools: Tool[],
+    maxSteps = 15
+  ): Promise<{ results: StepResult[], workingState: WorkingStateData }> {
     const results: StepResult[] = []
-    const previousSummaries: string[] = []
+    const workingMemory = new WorkingMemory()
+    const workingState = new WorkingState(objective)
+    const memoryTools = workingMemory.getTools()
+    const allToolsWithMemory = [...allTools, ...memoryTools]
 
-    for (const subtask of subtasks) {
-      const retriever = new ToolRetriever(this.adapter, allTools)
-      const retrieved = await retriever.retrieve(subtask.objective, 3)
-      const toolsForStep = retrieved.length > 0 ? retrieved : allTools.slice(0, 3)
-      this.logger.debug(`subtask ${subtask.id} tools:`, toolsForStep.map(t => t.name))
+    let previousStepResult: string | null = null
+    let stepId = 1
 
-      const context: HarnessContext = {
-        ...baseContext,
-        subtask,
-        tools: toolsForStep,
+    while (stepId <= maxSteps) {
+      const doneResponse = await this.adapter.complete([
+        {
+          role: 'system',
+          content: buildDoneCheckPrompt(objective, previousStepResult, workingState.toPromptBlock())
+        },
+        { role: 'user', content: 'Is the objective done?' }
+      ], { temperature: 0 }).catch(() => 'NO')
+
+      this.logger.debug(`step ${stepId} done check: ${doneResponse.slice(0, 100)}`)
+
+      if (doneResponse.trim().toUpperCase().startsWith('YES')) {
+        this.logger.info(`Objective accomplished after ${stepId - 1} steps`)
+        break
       }
 
-      const estimatedPrompt = buildReasonPrompt(context)
-      this.logger.debug(`subtask ${subtask.id} tokens: ~${Math.ceil(estimatedPrompt.length / 4)}`)
-
-      let rawReasoning: string
-      let status: 'ok' | 'failed' = 'ok'
-      let failReason: string | undefined
-
-      let reasonResponse: string | undefined
-      try {
-        const userContent = previousSummaries.length > 0
-          ? `${subtask.objective}\n\nDATA FROM PREVIOUS STEPS:\n${previousSummaries.join('\n')}`
-          : subtask.objective
-
-        reasonResponse = await this.adapter.complete([
-          { role: 'system', content: buildReasonPrompt(context) },
-          { role: 'user', content: userContent }
-        ], { temperature: 0 })
-      } catch (err) {
-        rawReasoning = ''
-        reasonResponse = undefined
-      }
+      const reasonResponse = await this.adapter.complete([
+        {
+          role: 'system',
+          content: buildStepReasonPrompt(
+            objective,
+            baseContext.systemPromptBase,
+            allToolsWithMemory,
+            previousStepResult,
+            workingState.toPromptBlock(),
+            workingMemory.toContext(),
+            baseContext.systemContext
+          )
+        },
+        {
+          role: 'user',
+          content: previousStepResult
+            ? `Previous result: ${previousStepResult}\nWhat is the next action?`
+            : `Start working on: ${objective}`
+        }
+      ], { temperature: 0 }).catch(() => null)
 
       if (!reasonResponse) {
-        rawReasoning = ''
-        status = 'failed'
-        failReason = 'ReasonPhase failed'
-        results.push({ subtaskId: subtask.id, summary: '', tool: '', rawResult: '', toolInput: {}, status, failReason })
-        continue
+        this.logger.warn(`step ${stepId} ReasonPhase failed`)
+        results.push({
+          subtaskId: stepId,
+          summary: `Step ${stepId}: failed to determine action`,
+          tool: '',
+          rawResult: '',
+          toolInput: {},
+          status: 'failed',
+          failReason: 'ReasonPhase failed'
+        })
+        break
       }
-      rawReasoning = reasonResponse
 
-      this.logger.debug(`subtask ${subtask.id} reasoning:\n${rawReasoning.slice(0, 300)}`)
+      this.logger.debug(`step ${stepId} reason:\n${reasonResponse.slice(0, 300)}`)
 
-      let serialized: { tool: string; input: Record<string, unknown> } | null = null
+      const retriever = new ToolRetriever(this.adapter, allToolsWithMemory)
+      const retrieved = await retriever.retrieve(reasonResponse, 3)
+      const toolsForStep = retrieved.length > 0
+        ? retrieved
+        : allToolsWithMemory.slice(0, 5)
+
+      this.logger.debug(`step ${stepId} tools:`, toolsForStep.map(t => t.name))
+
       const serializeResponse = await this.adapter.complete([
-        { role: 'system', content: buildSerializePrompt(rawReasoning, toolsForStep) },
+        { role: 'system', content: buildSerializePrompt(reasonResponse, toolsForStep) },
         { role: 'user', content: 'Produce the JSON tool call.' }
       ], { temperature: 0 }).catch(() => null)
 
-      this.logger.debug(`subtask ${subtask.id} serialize raw:\n${serializeResponse?.slice(0, 300)}`)
+      this.logger.debug(`step ${stepId} serialize raw:\n${serializeResponse?.slice(0, 300)}`)
 
-      if (!serializeResponse) {
-        const retryResponse = await this.adapter.complete([
-          { role: 'system', content: buildSerializePrompt(rawReasoning, toolsForStep) },
-          { role: 'user', content: 'CRITICAL: respond with ONLY valid JSON, no additional text.' }
-        ], { temperature: 0 }).catch(() => null)
-
-        if (!retryResponse) {
-          status = 'failed'
-          failReason = 'SerializePhase failed'
-          results.push({ subtaskId: subtask.id, summary: '', tool: '', rawResult: rawReasoning, toolInput: {}, status, failReason })
-          continue
-        }
-
-        serialized = this.parseJson(retryResponse)
-      } else {
-        serialized = this.parseJson(serializeResponse)
-      }
-
-      this.logger.debug(`subtask ${subtask.id} parsed:`, JSON.stringify(serialized))
+      const serialized = serializeResponse ? this.parseJson(serializeResponse) : null
+      this.logger.debug(`step ${stepId} parsed:`, JSON.stringify(serialized))
 
       if (!serialized) {
-        status = 'failed'
-        failReason = 'SerializePhase failed to parse JSON'
-        results.push({ subtaskId: subtask.id, summary: '', tool: '', rawResult: rawReasoning, toolInput: {}, status, failReason })
-        continue
+        this.logger.warn(`step ${stepId} failed to serialize`)
+        results.push({
+          subtaskId: stepId,
+          summary: `Step ${stepId}: failed to determine action`,
+          tool: '',
+          rawResult: reasonResponse,
+          toolInput: {},
+          status: 'failed',
+          failReason: 'SerializePhase failed'
+        })
+        break
       }
 
       const { tool: toolName, input: toolInput } = serialized
 
-      let rawResult: string
-      try {
-        rawResult = await toolRegistry.callTool(toolName, toolInput)
-      } catch (err) {
-        rawResult = err instanceof Error ? err.message : String(err)
+      const lastResult = results[results.length - 1]
+      if (
+        lastResult &&
+        lastResult.tool === toolName &&
+        JSON.stringify(lastResult.toolInput) === JSON.stringify(toolInput)
+      ) {
+        this.logger.warn(`step ${stepId} loop detected — same tool+input, stopping`)
+        break
       }
 
-      this.logger.debug(`subtask ${subtask.id} tool=${toolName} result:\n${rawResult.slice(0, 200)}`)
-
-      if (baseContext.classification === 'complex') {
-        const verification = await this.verifier.verify(subtask.objective, rawResult)
-
-        if (!verification.approved) {
-          const retryReasoning = await this.adapter.complete([
-            { role: 'system', content: buildReasonPrompt({
-              ...context,
-              previousSummaries: [...previousSummaries, `Previous attempt failed: ${verification.reason}`]
-            }) },
-            { role: 'user', content: subtask.objective }
-          ], { temperature: 0 }).catch(() => null)
-
-          if (retryReasoning) {
-            const retrySerialize = await this.adapter.complete([
-              { role: 'system', content: buildSerializePrompt(retryReasoning, toolsForStep) },
-              { role: 'user', content: 'Produce the JSON tool call.' }
-            ], { temperature: 0 }).catch(() => null)
-
-            if (retrySerialize) {
-              const retryParsed = this.parseJson(retrySerialize)
-              if (retryParsed) {
-                const retryToolName = retryParsed.tool
-                const retryToolInput = retryParsed.input
-
-                try {
-                  rawResult = await toolRegistry.callTool(retryToolName, retryToolInput)
-                } catch (err) {
-                  rawResult = err instanceof Error ? err.message : String(err)
-                }
-
-                const retryVerification = await this.verifier.verify(subtask.objective, rawResult)
-                if (!retryVerification.approved) {
-                  status = 'failed'
-                  failReason = retryVerification.reason
-                }
-              }
-            }
-          }
-
-          if (status !== 'failed') {
-            const retryVerification = await this.verifier.verify(subtask.objective, rawResult)
-            if (!retryVerification.approved) {
-              status = 'failed'
-              failReason = verification.reason
-            }
-          }
+      let rawResult: string
+      if (workingMemory.isTool(toolName)) {
+        rawResult = workingMemory.executeTool(toolName, toolInput)
+      } else {
+        try {
+          rawResult = await toolRegistry.callTool(toolName, toolInput)
+        } catch (err) {
+          rawResult = err instanceof Error ? err.message : String(err)
         }
       }
 
-      const summaryResponse = await this.adapter.complete([
-        { role: 'system', content: buildSummaryPrompt(subtask.id, toolName, rawResult, toolInput, baseContext.targetLanguage) },
-        { role: 'user', content: 'Summarize the result above.' }
-      ], { temperature: 0 }).catch(() => `Step ${subtask.id} (${toolName}): completed`)
+      workingState.update(toolName, toolInput, rawResult, stepId)
 
-      previousSummaries.push(summaryResponse)
-      this.logger.debug(`subtask ${subtask.id} summary:\n${summaryResponse.slice(0, 400)}`)
+      this.logger.debug(`step ${stepId} tool=${toolName} result:\n${rawResult.slice(0, 200)}`)
+
+      const summaryResponse = await this.adapter.complete([
+        {
+          role: 'system',
+          content: buildSummaryPrompt(
+            stepId,
+            toolName,
+            rawResult,
+            toolInput,
+            baseContext.targetLanguage
+          )
+        },
+        { role: 'user', content: 'Summarize the result above.' }
+      ], { temperature: 0 }).catch(
+        () => `Step ${stepId} (${toolName}): completed`
+      )
+
+      this.logger.debug(`step ${stepId} summary:\n${summaryResponse.slice(0, 300)}`)
+
+      const resultLimit = ['list_directory', 'search_files'].includes(toolName)
+        ? 20000
+        : 2000
+      previousStepResult = `Step ${stepId} (${toolName}):\n${rawResult.slice(0, resultLimit)}`
 
       results.push({
-        subtaskId: subtask.id,
+        subtaskId: stepId,
         summary: summaryResponse,
         tool: toolName,
         rawResult,
         toolInput,
-        status,
-        failReason,
+        status: 'ok'
       })
+
+      if (stepId > 4) {
+        const lastFour = results.slice(-4).map(r => r.tool)
+        const progressTools = [
+          'memory_set', 'create_directory', 'move_file',
+          'write_file', 'delete_file', 'run_command', 'web_search'
+        ]
+        const hasProgress = lastFour.some(t => progressTools.includes(t))
+        if (!hasProgress) {
+          this.logger.warn(`No progress in last 4 steps, stopping`)
+          break
+        }
+      }
+
+      stepId++
     }
 
-    return results
+    if (stepId > maxSteps) {
+      this.logger.warn(`Reached maxSteps (${maxSteps}) without completion`)
+    }
+
+    return { results, workingState: workingState.getData() }
   }
 
   private parseJson(
@@ -216,7 +231,28 @@ export class Harness {
               return { tool: parsed.tool, input: parsed.input }
             }
           } catch {
-            // seguir buscando
+            try {
+              const repaired = candidate
+                .replace(/:\s*\[([^\]]*)\]/g, (_match: string, arr: string) => {
+                  const fixed = arr
+                    .split(',')
+                    .map((item: string) => {
+                      const trimmed = item.trim()
+                      if (trimmed.startsWith('"') || trimmed.startsWith("'")) {
+                        return `"${trimmed.replace(/^['"]|['"]$/g, '')}"`
+                      }
+                      return `"${trimmed}"`
+                    })
+                    .join(', ')
+                  return `: [${fixed}]`
+                })
+              const reparsed = JSON.parse(repaired)
+              if (typeof reparsed.tool === 'string' && reparsed.input) {
+                return { tool: reparsed.tool, input: reparsed.input }
+              }
+            } catch {
+              // seguir buscando
+            }
           }
           start = -1
         }

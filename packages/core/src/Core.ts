@@ -1,4 +1,4 @@
-import type { CoreInput, CoreOutput } from './types/index'
+import type { CoreInput, CoreOutput, WorkingStateData } from './types/index'
 import type { ModelAdapter } from './adapters/ModelAdapter'
 import { Harness } from './harness/Harness'
 import { Classifier } from './planner/Classifier'
@@ -6,7 +6,6 @@ import { createRitosService, type RitosService } from './memory/Ritos'
 import { createLogger } from './utils/Logger'
 import {
   buildUnderstandPrompt,
-  buildPlanPrompt,
   buildExaminePrompt,
   buildRespondPrompt
 } from './planner/prompts'
@@ -76,63 +75,26 @@ export class Core {
       if (ritoMatch) ritoGuia = ritoMatch.rito.guia
     }
 
-    // PASO 6 — Plan (Pólya fase 2)
-    const planText = await this.adapter.complete([{
-      role: 'user',
-      content: buildPlanPrompt(understanding, input.tools, input.sessionContext, ritoGuia, systemContext)
-    }], { temperature: 0 })
-
-    this.logger.debug('planText:', planText.slice(0, 500))
-
-    if (planText.trim() === 'NO_STEPS') {
-      const response = await this.adapter.complete([{
-        role: 'user',
-        content: buildRespondPrompt(input.message, understanding, [], input.userProfile ?? [])
-      }], { temperature: 0.3 })
-      return { response, stepResults: [], classification }
-    }
-
-    // Parsear plan en Subtask[]
-    const subtasks = planText
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => /^\d+[\.\)]\s+/.test(line) || /^\*{0,2}\d+[\.\)]\*{0,2}\s+/.test(line))
-      .map((line, index) => ({
-        id: index + 1,
-        objective: line
-          .replace(/^\*{0,2}\d+[\.\)]\*{0,2}\s+/, '')
-          .replace(/^\d+[\.\)]\s+/, '')
-          .trim(),
-        dependsOn: index === 0 ? null : index
-      }))
-
-    this.logger.debug('subtasks:', subtasks.length)
-
-    // Si no se parsearon pasos, respuesta directa
-    if (subtasks.length === 0) {
-      this.logger.warn('Plan parsed 0 subtasks. planText was:\n', planText.slice(0, 500))
-      const response = await this.adapter.complete([{
-        role: 'user',
-        content: buildRespondPrompt(input.message, understanding, [], input.userProfile ?? [])
-      }], { temperature: 0.3 })
-      return { response, stepResults: [], classification }
-    }
-
-    // PASO 7 — Execute (Pólya fase 3 — Harness)
+    // PASO 5 — AmplifyLoop (planning + ejecución incremental)
     const toolRegistry = { callTool: input.toolExecutor }
-    const stepResults = await this.harness.run(
-      subtasks,
+
+    const harnessObjective = ritoGuia
+      ? `${understanding}\n\nGUIDANCE FROM SIMILAR PROBLEMS:\n${ritoGuia}`
+      : understanding
+
+    const { results: stepResults, workingState } = await this.harness.run(
+      harnessObjective,
       {
         systemPromptBase: input.systemPrompt ?? 'You are Ezio, a personal assistant.',
-        previousSummaries: [],
         classification,
-        targetLanguage: input.targetLanguage
+        targetLanguage: input.targetLanguage,
+        systemContext
       },
       toolRegistry,
       input.tools
     )
 
-    // PASO 8 — Examine (Pólya fase 4 — primera mitad)
+    // PASO 6 — Examine (Pólya fase 4 — primera mitad)
     let gapContext: string | undefined
     try {
       const examineRaw = await this.adapter.complete([{
@@ -154,7 +116,7 @@ export class Core {
       // continuar sin gapContext
     }
 
-    // PASO 9 — Respond (Pólya fase 4 — segunda mitad)
+    // PASO 7 — Respond (Pólya fase 4 — segunda mitad)
     const response = await this.adapter.complete([{
       role: 'user',
       content: buildRespondPrompt(
@@ -162,11 +124,12 @@ export class Core {
         understanding,
         stepResults,
         input.userProfile ?? [],
-        gapContext
+        gapContext,
+        workingState
       )
     }], { temperature: 0.3 })
 
-    // PASO 10 — Guardar Rito en background
+    // PASO 8 — Guardar Rito en background
     if (classification === 'complex' && stepResults.every(r => r.status === 'ok') && this.ritosService) {
       this.adapter.complete([{
         role: 'user',
@@ -176,6 +139,17 @@ export class Core {
       .catch(e => this.logger.warn('saveRito error:', e))
     }
 
-    return { response, stepResults, classification }
+    return {
+      response,
+      stepResults,
+      classification,
+      workingStateData: {
+        trackedFiles: workingState.trackedFiles,
+        createdDirectories: workingState.createdDirectories,
+        movedFiles: workingState.movedFiles,
+        writtenFiles: workingState.writtenFiles,
+        searchResults: workingState.searchResults
+      }
+    }
   }
 }
