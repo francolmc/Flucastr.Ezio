@@ -9,9 +9,10 @@ import { OllamaAdapter } from '../adapters/OllamaAdapter'
 import { AnthropicAdapter } from '../adapters/AnthropicAdapter'
 import { GoogleAdapter } from '../adapters/GoogleAdapter'
 import { OpenAIAdapter } from '../adapters/OpenAIAdapter'
-import type { ModelSize } from '../reasoning/types'
 
-export interface ReasoningConfig {
+type ModelSize = 'small' | 'medium' | 'large'
+
+interface ReasoningConfig {
   modelSize: ModelSize
   maxPlanSteps: number
   maxValidationIterations: number
@@ -29,6 +30,7 @@ export interface EzioConfig {
   provider?: 'ollama' | 'anthropic' | 'google' | 'openai'
   apiKey?: string
   baseUrl?: string
+  userId?: string
 }
 
 const SUPPORTED_PROVIDERS = ['ollama', 'anthropic', 'google'] as const

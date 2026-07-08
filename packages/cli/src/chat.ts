@@ -30,11 +30,13 @@ async function main() {
   const tools = await toolsProvider.getTools()
   const adapter = ConfigService.getActiveAdapter(config)
   const db = ConfigService.createDb()
+  const userId = config.userId ?? 'local'
   const client = new EzioClient({
     adapter,
     tools,
     toolExecutor: toolsProvider.createToolExecutor(adapter, targetLanguage),
     db,
+    userId,
   })
 
   const { provider, name } = config.model

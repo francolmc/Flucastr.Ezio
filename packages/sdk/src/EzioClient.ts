@@ -24,6 +24,7 @@ export interface EzioClientConfig {
   userProfile?: Fact[]
   db?: import('node:sqlite').DatabaseSync
   compressEveryN?: number
+  userId?: string
 }
 
 export class EzioClient {
@@ -43,7 +44,7 @@ export class EzioClient {
   private currentSnapshot: string | null = null
   private sessionId: string = randomUUID()
   private turnIndex: number = 0
-  private userId: string = 'default'
+  private userId: string = 'local'
 
   constructor(config: EzioClientConfig = {}) {
     const adapter = config.adapter ?? ConfigService.createAdapter()
@@ -61,6 +62,7 @@ export class EzioClient {
       this.compressor = createConversationCompressor(adapter, this.store)
     }
     this.compressEveryN = config.compressEveryN ?? 10
+    this.userId = config.userId ?? 'local'
   }
 
   async send(message: string): Promise<string> {
