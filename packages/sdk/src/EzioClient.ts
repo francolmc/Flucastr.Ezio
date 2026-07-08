@@ -119,9 +119,13 @@ export class EzioClient {
     }
 
     if (this.factExtractor) {
-      this.factExtractor
+      const extraction = this.factExtractor
         .extract(this.userId, message, finalResponse)
         .catch(e => logger.warn('FactExtractor error:', String(e)))
+
+      if (process.env.EZIO_DEBUG === 'true') {
+        await extraction
+      }
     }
 
     return { ...output, response: finalResponse }

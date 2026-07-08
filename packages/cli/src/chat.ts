@@ -159,6 +159,8 @@ async function main() {
         const stepStatuses = steps.map((s, i) => `step${i + 1}=${s.status}`).join(' ')
         console.log(`[debug] classification=${result.classification} steps=${steps.length} ${stepStatuses}`)
       }
+
+      console.log('')
     } catch (error) {
       process.stdout.write('\r' + ' '.repeat(4) + '\r')
       console.error(`${RESPONSE_PREFIX}Error: ${error instanceof Error ? error.message : error}`)
