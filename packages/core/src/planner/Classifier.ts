@@ -1,5 +1,4 @@
 import type { ModelAdapter } from '../adapters/ModelAdapter'
-import type { ChatMessage } from '../adapters/ModelAdapter'
 import { createLogger } from '../utils/Logger'
 
 interface ClassificationResult {
@@ -13,10 +12,6 @@ export class Classifier {
   constructor(private adapter: ModelAdapter) {}
 
   async classify(message: string, sessionContext?: string): Promise<ClassificationResult> {
-    const contextSection = sessionContext
-      ? `\nCONTEXT:\n${sessionContext}`
-      : ''
-
     const prompt = `Classify the complexity of the user request.
 
 USER MESSAGE: ${message}
@@ -47,39 +42,63 @@ Examples:
 Respond with ONLY valid JSON:
 {"level": "simple|moderate|complex", "reason": "brief explanation"}`
 
-    const messages: ChatMessage[] = [{ role: 'user', content: prompt }]
-
     try {
-      const response = await this.adapter.complete(messages)
-      const parsed = this.parseResponse(response)
+      const raw = await this.adapter.complete(
+        [{ role: 'system', content: prompt }, { role: 'user', content: message }],
+        { temperature: 0 }
+      )
+      this.logger.debug('Raw response:', raw.slice(0, 200))
 
-      if (parsed) {
-        return parsed
-      }
+      const result = this.parseClassification(raw)
+      if (result) return result
 
-      this.logger.warn('Parse failed, defaulting to simple')
+      this.logger.warn('First parse failed, retrying with minimal prompt')
+      const retryPrompt = `Reply with ONLY valid JSON, nothing else.
+{"level": "simple|moderate|complex", "reason": "why"}
+
+Rules:
+- simple: no tools needed (greetings, knowledge questions)
+- moderate: one tool call needed
+- complex: 2+ chained tool calls
+
+Message: ${message.slice(0, 200)}`
+
+      const retryRaw = await this.adapter.complete(
+        [{ role: 'user', content: retryPrompt }],
+        { temperature: 0 }
+      )
+      this.logger.debug('Retry response:', retryRaw.slice(0, 200))
+
+      const retryResult = this.parseClassification(retryRaw)
+      if (retryResult) return retryResult
+
+      this.logger.warn('Both attempts failed, defaulting to simple')
       return { level: 'simple', reason: 'parse error, defaulting to simple' }
-    } catch (err) {
-      this.logger.warn('Error:', err)
+
+    } catch (e) {
+      this.logger.warn('Classification error:', e instanceof Error ? e.message : String(e))
       return { level: 'simple', reason: 'error, defaulting to simple' }
     }
   }
 
-  private parseResponse(response: string): ClassificationResult | null {
-    const match = response.match(/\{[^}]+\}/)
-    if (!match) return null
-
+  private parseClassification(raw: string): ClassificationResult | null {
     try {
-      const parsed = JSON.parse(match[0])
-      if (parsed.level !== 'simple' && parsed.level !== 'moderate' && parsed.level !== 'complex') {
-        return null
+      let depth = 0, start = -1
+      for (let i = 0; i < raw.length; i++) {
+        if (raw[i] === '{') { if (depth === 0) start = i; depth++ }
+        else if (raw[i] === '}') {
+          depth--
+          if (depth === 0 && start !== -1) {
+            const candidate = raw.slice(start, i + 1)
+            const parsed = JSON.parse(candidate)
+            const level = parsed.level?.toLowerCase()
+            if (['simple', 'moderate', 'complex'].includes(level)) {
+              return { level, reason: parsed.reason ?? '' }
+            }
+          }
+        }
       }
-      return {
-        level: parsed.level,
-        reason: parsed.reason || ''
-      }
-    } catch {
-      return null
-    }
+    } catch { }
+    return null
   }
 }
