@@ -31,10 +31,40 @@ async function main() {
   const adapter = ConfigService.getActiveAdapter(config)
   const db = ConfigService.createDb()
   const userId = config.userId ?? 'local'
+
+  const baseExecutor = toolsProvider.createToolExecutor(adapter, targetLanguage)
+
+  const safeExecutor = async (
+    name: string,
+    input: Record<string, unknown>
+  ): Promise<string> => {
+    const destructive = ['move_file', 'delete_file']
+    if (destructive.includes(name)) {
+      const preview = name === 'move_file'
+        ? `Move: ${input.source} → ${input.destination}`
+        : `Delete: ${input.path}`
+
+      process.stdout.write(`\n⚠  ${preview}\n   Confirm? (y/n): `)
+
+      const answer = await new Promise<string>(resolve => {
+        const handler = (data: Buffer) => {
+          process.stdin.removeListener('data', handler)
+          resolve(data.toString().trim().toLowerCase())
+        }
+        process.stdin.once('data', handler)
+      })
+
+      if (answer !== 'y' && answer !== 'yes') {
+        return `Operation cancelled by user: ${preview}`
+      }
+    }
+    return baseExecutor(name, input)
+  }
+
   const client = new EzioClient({
     adapter,
     tools,
-    toolExecutor: toolsProvider.createToolExecutor(adapter, targetLanguage),
+    toolExecutor: safeExecutor,
     db,
     userId,
   })

@@ -49,6 +49,43 @@ const list_directory: Tool = {
   }
 }
 
+const create_directory: Tool = {
+  name: 'create_directory',
+  description: 'Create a directory and all parent directories if needed',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Absolute path to create' }
+    },
+    required: ['path']
+  }
+}
+
+const move_file: Tool = {
+  name: 'move_file',
+  description: 'Move or rename a file or directory to a new location',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      source: { type: 'string', description: 'Absolute path of source' },
+      destination: { type: 'string', description: 'Absolute path of destination' }
+    },
+    required: ['source', 'destination']
+  }
+}
+
+const delete_file: Tool = {
+  name: 'delete_file',
+  description: 'Delete a file (NOT directories). Use with caution.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Absolute path to file to delete' }
+    },
+    required: ['path']
+  }
+}
+
 async function executeReadFile(input: Record<string, unknown>): Promise<string> {
   const filePath = expandPath(input.path as string)
   try {
@@ -104,10 +141,54 @@ async function executeListDirectory(input: Record<string, unknown>): Promise<str
   }
 }
 
-export const filesystemTools: Tool[] = [read_file, write_file, list_directory]
+async function executeCreateDirectory(input: Record<string, unknown>): Promise<string> {
+  const dirPath = expandPath(input.path as string)
+  try {
+    await fs.mkdir(dirPath, { recursive: true })
+    return `Directory created: ${dirPath}`
+  } catch (error) {
+    return `Error creating directory: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+async function executeMoveFile(input: Record<string, unknown>): Promise<string> {
+  const source = expandPath(input.source as string)
+  const destination = expandPath(input.destination as string)
+  try {
+    await fs.rename(source, destination)
+    return `Moved: ${source} → ${destination}`
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return `Error: source not found at '${source}'`
+    }
+    return `Error moving file: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+async function executeDeleteFile(input: Record<string, unknown>): Promise<string> {
+  const filePath = expandPath(input.path as string)
+  try {
+    const stat = await fs.stat(filePath)
+    if (stat.isDirectory()) {
+      return `Error: path '${filePath}' is a directory, not a file. Use a different tool to delete directories.`
+    }
+    await fs.unlink(filePath)
+    return `Deleted: ${filePath}`
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return `Error: file not found at '${filePath}'`
+    }
+    return `Error deleting file: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+export const filesystemTools: Tool[] = [read_file, write_file, list_directory, create_directory, move_file, delete_file]
 
 export const filesystemExecutor: Record<string, (input: Record<string, unknown>) => Promise<string>> = {
   read_file: executeReadFile,
   write_file: executeWriteFile,
-  list_directory: executeListDirectory
+  list_directory: executeListDirectory,
+  create_directory: executeCreateDirectory,
+  move_file: executeMoveFile,
+  delete_file: executeDeleteFile
 }
