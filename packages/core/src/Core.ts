@@ -82,6 +82,8 @@ export class Core {
       content: buildPlanPrompt(understanding, input.tools, input.sessionContext, ritoGuia, systemContext)
     }], { temperature: 0 })
 
+    this.logger.debug('planText:', planText.slice(0, 500))
+
     if (planText.trim() === 'NO_STEPS') {
       const response = await this.adapter.complete([{
         role: 'user',
@@ -103,6 +105,8 @@ export class Core {
           .trim(),
         dependsOn: index === 0 ? null : index
       }))
+
+    this.logger.debug('subtasks:', subtasks.length)
 
     // Si no se parsearon pasos, respuesta directa
     if (subtasks.length === 0) {
