@@ -22,8 +22,12 @@ DEFINITIONS:
 
 CRITICAL RULE: Count the number of distinct tool calls required.
 - 0 tool calls → simple
-- 1 tool call → moderate  
+- 1 tool call → moderate
 - 2+ tool calls → complex
+
+ADDITIONAL RULE:
+If the message contains 3 or more distinct action verbs that each require a different tool, classify as complex.
+Examples of action verbs: lista, crea, mueve, guarda, busca, escribe, elimina, list, create, move, save, search.
 
 EXAMPLES:
 "hola" → {"level":"simple","reason":"greeting"}

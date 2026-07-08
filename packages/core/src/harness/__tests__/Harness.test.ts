@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ModelAdapter } from '../../adapters/ModelAdapter'
-import type { Subtask, Tool, ToolRegistry } from '../../types/index'
+import type { Tool, ToolRegistry } from '../../types/index'
 import { Harness } from '../Harness'
 
 describe('Harness', () => {
   let fakeAdapter: ModelAdapter
   let fakeToolRegistry: ToolRegistry
   let fakeTool: Tool
-  let subtask: Subtask
-  let baseContext: Omit<import('../../types/index').HarnessContext, 'subtask' | 'tools'>
+  let baseContext: {
+    systemPromptBase: string
+    classification: string
+    targetLanguage?: string
+    systemContext?: string
+  }
 
   beforeEach(() => {
     fakeAdapter = {
@@ -18,26 +22,57 @@ describe('Harness', () => {
       callTool: vi.fn().mockResolvedValue('tool result')
     }
     fakeTool = { name: 'read_file', description: 'reads a file', inputSchema: {} }
-    subtask = { id: 1, objective: 'read the config file', dependsOn: null }
     baseContext = {
       systemPromptBase: 'You are a helpful assistant',
-      previousSummaries: [],
       classification: 'complex'
     }
   })
 
-  it('run() with a subtask returns array with one StepResult', async () => {
-    fakeAdapter.complete = vi.fn().mockResolvedValue('Use read_file tool')
+  it('run() with DONE on first decide returns empty results', async () => {
+    let callCount = 0
+    fakeAdapter.complete = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return Promise.resolve('NONE')
+      if (callCount === 2) return Promise.resolve('DONE')
+      return Promise.resolve('DONE')
+    })
     const harness = new Harness(fakeAdapter)
-    const results = await harness.run([subtask], baseContext, fakeToolRegistry, [fakeTool])
-    expect(results).toHaveLength(1)
-    expect(results[0]).toBeDefined()
+    const results = await harness.run('read the config file', baseContext, fakeToolRegistry, [fakeTool])
+    expect(results).toHaveLength(0)
   })
 
-  it('StepResult has all required fields: subtaskId, summary, tool, rawResult, toolInput, status', async () => {
-    fakeAdapter.complete = vi.fn().mockResolvedValue('Use read_file tool')
+  it('run() with next action returns array with one StepResult', async () => {
+    let callCount = 0
+    fakeAdapter.complete = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return Promise.resolve('NONE')
+      if (callCount === 2) return Promise.resolve('Use read_file tool to read the config')
+      if (callCount === 3) return Promise.resolve('NONE')
+      if (callCount === 4) return Promise.resolve('{"tool":"read_file","input":{}}')
+      if (callCount === 5) return Promise.resolve('Step 1 (read_file): completed')
+      if (callCount === 6) return Promise.resolve('DONE')
+      return Promise.resolve('DONE')
+    })
     const harness = new Harness(fakeAdapter)
-    const results = await harness.run([subtask], baseContext, fakeToolRegistry, [fakeTool])
+    const results = await harness.run('read the config file', baseContext, fakeToolRegistry, [fakeTool])
+    expect(results).toHaveLength(1)
+    expect(results[0].tool).toBe('read_file')
+  })
+
+  it('StepResult has all required fields', async () => {
+    let callCount = 0
+    fakeAdapter.complete = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return Promise.resolve('NONE')
+      if (callCount === 2) return Promise.resolve('Use read_file tool to read the config')
+      if (callCount === 3) return Promise.resolve('NONE')
+      if (callCount === 4) return Promise.resolve('{"tool":"read_file","input":{}}')
+      if (callCount === 5) return Promise.resolve('Step 1 (read_file): completed')
+      if (callCount === 6) return Promise.resolve('DONE')
+      return Promise.resolve('DONE')
+    })
+    const harness = new Harness(fakeAdapter)
+    const results = await harness.run('read the config file', baseContext, fakeToolRegistry, [fakeTool])
     expect(results[0]).toHaveProperty('subtaskId')
     expect(results[0]).toHaveProperty('summary')
     expect(results[0]).toHaveProperty('tool')
@@ -46,64 +81,77 @@ describe('Harness', () => {
     expect(results[0]).toHaveProperty('status')
   })
 
-  it('if adapter fails in ReasonPhase: StepResult with status failed, loop continues', async () => {
-    fakeAdapter.complete = vi.fn().mockRejectedValue(new Error('reason failed'))
+  it('if serialize fails, StepResult has failed status', async () => {
+    let callCount = 0
+    fakeAdapter.complete = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return Promise.resolve('NONE')
+      if (callCount === 2) return Promise.resolve('Use read_file tool')
+      if (callCount === 3) return Promise.resolve('NONE')
+      if (callCount === 4) return Promise.resolve('not valid json')
+      return Promise.resolve('also invalid')
+    })
     const harness = new Harness(fakeAdapter)
-    const results = await harness.run([subtask], baseContext, fakeToolRegistry, [fakeTool])
+    const results = await harness.run('read the config file', baseContext, fakeToolRegistry, [fakeTool])
     expect(results[0].status).toBe('failed')
-    expect(results[0].failReason).toBe('ReasonPhase failed')
+    expect(results[0].failReason).toBe('SerializePhase failed')
   })
 
-  it('if JSON from adapter is not parseable and retry also fails: StepResult with status failed', async () => {
-    fakeAdapter.complete = vi.fn()
-      .mockResolvedValueOnce('invalid json')
-      .mockResolvedValueOnce('also invalid')
+  it('first decide prompt does not have COMPLETED SO FAR section with content', async () => {
+    let callCount = 0
+    fakeAdapter.complete = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return Promise.resolve('NONE')
+      if (callCount === 2) return Promise.resolve('DONE')
+      return Promise.resolve('DONE')
+    })
     const harness = new Harness(fakeAdapter)
-    const results = await harness.run([subtask], baseContext, fakeToolRegistry, [fakeTool])
-    expect(results[0].status).toBe('failed')
+    await harness.run('read the config file', baseContext, fakeToolRegistry, [fakeTool])
+    const decideCall = fakeAdapter.complete.mock.calls[1]
+    expect(decideCall[0][0].content).not.toContain('COMPLETED SO FAR:\n')
   })
 
-  it('first subtask has previousSummaries empty in context', async () => {
-    const completeSpy = vi.fn().mockResolvedValue('{"tool":"read_file","input":{}}')
-    fakeAdapter.complete = completeSpy
+  it('subsequent decide includes previous summary', async () => {
+    let callCount = 0
+    fakeAdapter.complete = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return Promise.resolve('NONE')
+      if (callCount === 2) return Promise.resolve('Use read_file to read config')
+      if (callCount === 3) return Promise.resolve('NONE')
+      if (callCount === 4) return Promise.resolve('{"tool":"read_file","input":{}}')
+      if (callCount === 5) return Promise.resolve('Step 1 (read_file): read config file')
+      if (callCount === 6) return Promise.resolve('DONE')
+      return Promise.resolve('DONE')
+    })
     const harness = new Harness(fakeAdapter)
-    await harness.run([subtask], baseContext, fakeToolRegistry, [fakeTool])
-    expect(completeSpy).toHaveBeenCalled()
-    const calls = completeSpy.mock.calls
-    const reasonCall = calls.find(call => call[0][0].content.includes('INPUT FROM PREVIOUS STEPS'))
-    expect(reasonCall).toBeUndefined()
+    await harness.run('read and process config', baseContext, fakeToolRegistry, [fakeTool])
+    const secondDecideCall = fakeAdapter.complete.mock.calls[6]
+    expect(secondDecideCall[0][0].content).toContain('STEP SUMMARIES:\n')
+    expect(secondDecideCall[0][0].content).toContain('Step 1')
   })
 
-  it('second subtask receives summary of first in previousSummaries', async () => {
-    const completeSpy = vi.fn()
-      .mockResolvedValueOnce('Use read_file')
-      .mockResolvedValueOnce('{"tool":"read_file","input":{}}')
-      .mockResolvedValueOnce('Step 1 completed')
-      .mockResolvedValueOnce('Use read_file again')
-      .mockResolvedValueOnce('{"tool":"read_file","input":{}}')
-      .mockResolvedValueOnce('Step 2 completed')
-    fakeAdapter.complete = completeSpy
-
-    const subtask2: Subtask = { id: 2, objective: 'read again', dependsOn: 1 }
+  it('reaches maxSteps limit', async () => {
+    let callCount = 0
+    fakeAdapter.complete = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return Promise.resolve('NONE')
+      if (callCount === 2) return Promise.resolve('Use read_file')
+      if (callCount === 3) return Promise.resolve('NONE')
+      if (callCount === 4) return Promise.resolve('{"tool":"read_file","input":{}}')
+      if (callCount === 5) return Promise.resolve('Step 1 completed')
+      if (callCount === 6) return Promise.resolve('Use read_file')
+      if (callCount === 7) return Promise.resolve('NONE')
+      if (callCount === 8) return Promise.resolve('{"tool":"read_file","input":{}}')
+      if (callCount === 9) return Promise.resolve('Step 2 completed')
+      if (callCount === 10) return Promise.resolve('Use read_file')
+      if (callCount === 11) return Promise.resolve('NONE')
+      if (callCount === 12) return Promise.resolve('{"tool":"read_file","input":{}}')
+      if (callCount === 13) return Promise.resolve('Step 3 completed')
+      if (callCount === 14) return Promise.resolve('Use read_file')
+      return Promise.resolve('Use read_file')
+    })
     const harness = new Harness(fakeAdapter)
-    await harness.run([subtask, subtask2], baseContext, fakeToolRegistry, [fakeTool])
-
-    expect(completeSpy.mock.calls.length).toBeGreaterThanOrEqual(4)
-    const secondReasonCall = completeSpy.mock.calls[3]
-    expect(secondReasonCall[0][0].content).toContain('Step 1')
-  })
-
-  it('Verifier returns NO twice then YES: max 1 retry, status failed', async () => {
-    fakeAdapter.complete = vi.fn()
-      .mockResolvedValueOnce('Use read_file')
-      .mockResolvedValueOnce('{"tool":"read_file","input":{}}')
-      .mockResolvedValueOnce('NO - not approved')
-      .mockResolvedValueOnce('Try again')
-      .mockResolvedValueOnce('{"tool":"read_file","input":{}}')
-      .mockResolvedValueOnce('NO - still not approved')
-      .mockResolvedValueOnce('Step failed')
-    const harness = new Harness(fakeAdapter)
-    const results = await harness.run([subtask], baseContext, fakeToolRegistry, [fakeTool])
-    expect(results[0].status).toBe('failed')
+    const results = await harness.run('impossible task', baseContext, fakeToolRegistry, [fakeTool], 3)
+    expect(results.length).toBeLessThanOrEqual(3)
   })
 })
