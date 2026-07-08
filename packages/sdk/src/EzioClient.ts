@@ -8,6 +8,7 @@ import { ConfigService } from '@ezio/core'
 import type { CoreInput, CoreOutput, ChatMessage, Tool, Fact } from '@ezio/core'
 import type { ModelAdapter } from '@ezio/core'
 import { createConversationStore, ConversationStore } from '@ezio/core'
+import { createConversationCompressor, ConversationCompressor } from '@ezio/core'
 import { createFactsStore, FactsStore, createFactExtractor, FactExtractor } from '@ezio/core'
 import { createLogger } from '@ezio/core'
 import { randomUUID } from 'node:crypto'
@@ -22,6 +23,7 @@ export interface EzioClientConfig {
   systemPrompt?: string
   userProfile?: Fact[]
   db?: import('node:sqlite').DatabaseSync
+  compressEveryN?: number
 }
 
 export class EzioClient {
@@ -36,6 +38,9 @@ export class EzioClient {
   private store: ConversationStore | null = null
   private factsStore: FactsStore | null = null
   private factExtractor: FactExtractor | null = null
+  private compressor: ConversationCompressor | null = null
+  private compressEveryN: number = 10
+  private currentSnapshot: string | null = null
   private sessionId: string = randomUUID()
   private turnIndex: number = 0
   private userId: string = 'default'
@@ -53,7 +58,9 @@ export class EzioClient {
       this.store = createConversationStore(config.db)
       this.factsStore = createFactsStore(config.db)
       this.factExtractor = createFactExtractor(adapter, this.factsStore)
+      this.compressor = createConversationCompressor(adapter, this.store)
     }
+    this.compressEveryN = config.compressEveryN ?? 10
   }
 
   async send(message: string): Promise<string> {
@@ -67,9 +74,17 @@ export class EzioClient {
       this.detectedLanguage = detected
     }
 
-    const sessionContext = this.history.length > 0
-      ? this.history.slice(-6).map(msg => `${msg.role}: ${msg.content}`).join('\n')
-      : undefined
+    let sessionContext: string | undefined
+    const recentTurns = this.history.slice(-6)
+      .map(msg => `${msg.role}: ${msg.content}`)
+      .join('\n')
+
+    if (this.currentSnapshot && recentTurns) {
+      const formatted = this.compressor!.formatSnapshotForContext(this.currentSnapshot)
+      sessionContext = `${formatted}\n\n[RECENT_TURNS]\n${recentTurns}\n[/RECENT_TURNS]`
+    } else if (recentTurns) {
+      sessionContext = recentTurns
+    }
 
     const userProfile = this.factsStore
       ? this.factsStore.buildMemoryBlock(this.userId)
@@ -125,6 +140,30 @@ export class EzioClient {
 
       if (process.env.EZIO_DEBUG === 'true') {
         await extraction
+      }
+    }
+
+    if (
+      this.compressor &&
+      this.store &&
+      this.history.length >= this.compressEveryN * 2
+    ) {
+      const historyToCompress = this.history.slice(0, -4)
+      const lastTurns = this.history.slice(-4)
+
+      const compressionPromise = this.compressor
+        .compress(this.userId, this.sessionId, historyToCompress)
+        .then(snapshot => {
+          if (snapshot) {
+            this.currentSnapshot = snapshot
+            this.history = lastTurns
+            logger.debug('History compressed, keeping last 2 turns')
+          }
+        })
+        .catch(e => logger.warn('Compression error:', String(e)))
+
+      if (process.env.EZIO_DEBUG === 'true') {
+        await compressionPromise
       }
     }
 

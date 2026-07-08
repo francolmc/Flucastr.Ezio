@@ -13,3 +13,5 @@ export type { ConversationTurn, ConversationSnapshot } from './db/ConversationSt
 export { FactsStore, createFactsStore, CANONICAL_KEYS } from './db/FactsStore'
 export type { Fact, FactKey } from './db/FactsStore'
 export { FactExtractor, createFactExtractor } from './memory/FactExtractor'
+export { ConversationCompressor, createConversationCompressor } from './memory/ConversationCompressor'
+export type { ConversationStateSnapshot } from './memory/ConversationCompressor'
