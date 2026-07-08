@@ -12,35 +12,31 @@ export class Classifier {
   constructor(private adapter: ModelAdapter) {}
 
   async classify(message: string, sessionContext?: string): Promise<ClassificationResult> {
-    const prompt = `Classify the complexity of the user request.
+    const prompt = `You are a task complexity classifier.
+Respond with ONLY valid JSON: {"level": "simple|moderate|complex", "reason": "..."}
 
-USER MESSAGE: ${message}
-${sessionContext ? `CONTEXT:\n${sessionContext}` : ''}
+DEFINITIONS:
+- simple: no external tools needed. Greetings, general knowledge, conversation.
+- moderate: exactly ONE tool call completes the task.
+- complex: requires 2 or more tool calls in sequence.
 
-LEVELS:
-- SIMPLE: No external tools needed. Only for: greetings, general knowledge 
-  questions answerable from memory, casual conversation, confirmations.
-- MODERATE: Exactly ONE external tool call needed.
-- COMPLEX: 2 or more tool calls where result of step N feeds into step N+1.
+CRITICAL RULE: Count the number of distinct tool calls required.
+- 0 tool calls → simple
+- 1 tool call → moderate  
+- 2+ tool calls → complex
 
-CRITICAL RULES — these override everything else:
-- ANY question about files, folders, directories, or file contents = MODERATE minimum
-- ANY question about current system state = MODERATE minimum  
-- ANY request to read, list, search, create, or modify files = MODERATE minimum
-- "show me", "list", "what's in", "contents of" + any folder/file = MODERATE
-- Only classify as SIMPLE if the answer requires NO external data whatsoever
-- When in doubt between SIMPLE and MODERATE: choose MODERATE
+EXAMPLES:
+"hola" → {"level":"simple","reason":"greeting"}
+"busca el clima" → {"level":"moderate","reason":"one web_search call"}
+"lista mis archivos" → {"level":"moderate","reason":"one list_directory call"}
+"busca X y crea un archivo con el resultado" → {"level":"complex","reason":"web_search then write_file"}
+"lista Downloads, crea carpetas y mueve archivos" → {"level":"complex","reason":"list_directory + create_directory x4 + move_file xN"}
+"organiza archivos en subcarpetas" → {"level":"complex","reason":"requires listing, creating dirs, and moving multiple files"}
 
-Examples:
-- "hola" → SIMPLE
-- "what is Python?" → SIMPLE  
-- "list my Downloads folder" → MODERATE
-- "show me Documents" → MODERATE
-- "what files do I have?" → MODERATE
-- "search for X and create a file with results" → COMPLEX
+USER MESSAGE: ${message.slice(0, 300)}
+${sessionContext ? `CONTEXT: ${sessionContext.slice(0, 200)}` : ''}
 
-Respond with ONLY valid JSON:
-{"level": "simple|moderate|complex", "reason": "brief explanation"}`
+JSON response:`
 
     try {
       const raw = await this.adapter.complete(
