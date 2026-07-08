@@ -55,24 +55,27 @@ export function buildSummaryPrompt(
   toolInput: Record<string, unknown>,
   targetLanguage?: string
 ): string {
+  const isEmpty = rawResult.trim().length === 0
   const truncated = rawResult.slice(0, 1500)
   const languageInstruction = targetLanguage && targetLanguage !== 'en'
     ? `\nWrite the Key output in ${targetLanguage}.`
     : ''
 
-  return `Given the result of a subtask, produce a brief summary.
+  return `Summarize this tool execution for the next step.
 
 TOOL USED: ${tool}
 TOOL INPUT: ${JSON.stringify(toolInput)}
 RAW RESULT:
-${truncated}
+${isEmpty ? '(empty — the tool returned no content)' : truncated}
 
 Format:
-Step ${subtaskId} (${tool}): {1-line description in English of what was done}
-Key output: {copy and translate the first 800 characters of RAW RESULT}${languageInstruction}
+Step ${subtaskId} (${tool}): {1-line description of what was done}
+Key output: ${isEmpty ? 'none (result was empty)' : '{copy first 800 chars of RAW RESULT verbatim}'}${languageInstruction}
 
-CRITICAL: Key output MUST contain the actual content from RAW RESULT.
-Never write "none" if there is content in RAW RESULT.`
+CRITICAL:
+- If RAW RESULT is empty, Key output MUST be "none (result was empty)"
+- NEVER invent or assume content that is not in RAW RESULT
+- Copy RAW RESULT verbatim — do not paraphrase or add information`
 }
 
 export function buildVerifyPrompt(objective: string, result: string): string {
