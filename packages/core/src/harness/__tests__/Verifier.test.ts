@@ -32,12 +32,30 @@ describe('Verifier', () => {
     expect(result.approved).toBe(true)
   })
 
-  it('when adapter returns ambiguous text without YES or NO → approved: true, reason contains assuming approved', async () => {
+  it('when adapter returns ambiguous text without YES or NO → approved: false (fail closed)', async () => {
     fakeAdapter.complete = vi.fn().mockResolvedValue('Maybe, it could be considered complete')
     const verifier = new Verifier(fakeAdapter)
     const result = await verifier.verify('do something', 'result data')
+    expect(result.approved).toBe(false)
+    expect(result.reason).toContain('unclear')
+  })
+
+  it('when adapter reasons first and ends with "ANSWER: NO" → approved: false', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue(
+      'Let me think about this.\nThe file was not moved.\n\n**ANSWER:** NO'
+    )
+    const verifier = new Verifier(fakeAdapter)
+    const result = await verifier.verify('move the file', 'result data')
+    expect(result.approved).toBe(false)
+  })
+
+  it('when adapter reasons first and ends with "ANSWER: YES" → approved: true', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue(
+      'Checking the result carefully.\nThe command succeeded.\n\nANSWER: YES'
+    )
+    const verifier = new Verifier(fakeAdapter)
+    const result = await verifier.verify('run a command', 'result data')
     expect(result.approved).toBe(true)
-    expect(result.reason).toContain('assuming approved')
   })
 
   it('when adapter returns "YES" without additional reason → approved: true, no error', async () => {
