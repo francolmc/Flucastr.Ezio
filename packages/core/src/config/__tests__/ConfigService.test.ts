@@ -1,7 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+
+vi.mock('node:sqlite', () => ({
+  DatabaseSync: vi.fn()
+}))
+
 import { ConfigService } from '../ConfigService'
 import { OllamaAdapter } from '../../adapters/OllamaAdapter'
 import { AnthropicAdapter } from '../../adapters/AnthropicAdapter'

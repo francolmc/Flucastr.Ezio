@@ -41,6 +41,13 @@ export interface StepResult {
   toolInput: Record<string, unknown>
   status: 'ok' | 'failed'
   failReason?: string
+  microStep?: boolean
+  retried?: boolean
+}
+
+export interface MicroPlanResult {
+  steps: string[]
+  reason: string
 }
 
 export interface HarnessContext {
@@ -79,4 +86,5 @@ export interface CoreOutput {
 export interface VerifierResult {
   approved: boolean
   reason: string
+  costLLM?: boolean
 }

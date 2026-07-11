@@ -53,10 +53,6 @@ Respond with ONLY tool names separated by commas, nothing else.`
         .filter((t): t is Tool => t !== undefined)
         .slice(0, maxTools)
 
-      if (result.length === 0) {
-        return filteredTools.slice(0, maxTools)
-      }
-
       return result
     } catch (err) {
       this.logger.warn('Error:', err)

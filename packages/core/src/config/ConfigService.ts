@@ -17,6 +17,9 @@ interface ReasoningConfig {
   maxPlanSteps: number
   maxValidationIterations: number
   twoPhaseReasoning: boolean
+  maxReactiveDecomposePerRun: number
+  toolRetrievalThreshold: number
+  maxWebSearchPerRun: number
 }
 
 export interface EzioConfig {
@@ -27,6 +30,10 @@ export interface EzioConfig {
     google?: { apiKey: string }
   }
   reasoning?: Partial<ReasoningConfig>
+  tools?: {
+    tavilyApiKey?: string
+  }
+  mcpServers?: Array<{ name: string, url: string, enabled?: boolean }>
   provider?: 'ollama' | 'anthropic' | 'google' | 'openai'
   apiKey?: string
   baseUrl?: string
@@ -46,7 +53,13 @@ const EXAMPLE_CONFIG = JSON.stringify({
     modelSize: 'medium',
     maxPlanSteps: 5,
     maxValidationIterations: 3,
-    twoPhaseReasoning: true
+    twoPhaseReasoning: true,
+    maxReactiveDecomposePerRun: 1,
+    toolRetrievalThreshold: 12,
+    maxWebSearchPerRun: 5
+  },
+  tools: {
+    tavilyApiKey: 'tvly-...'
   }
 }, null, 2)
 

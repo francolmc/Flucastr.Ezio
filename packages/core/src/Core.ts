@@ -9,6 +9,8 @@ import {
   buildExaminePrompt,
   buildRespondPrompt
 } from './planner/prompts'
+import { ConfigService, type EzioConfig } from './config/ConfigService'
+import { getCurrentDateContext } from './utils/DateContext'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
@@ -20,9 +22,14 @@ export class Core {
 
   constructor(
     private adapter: ModelAdapter,
-    db?: import('node:sqlite').DatabaseSync
+    db?: import('node:sqlite').DatabaseSync,
+    config?: EzioConfig
   ) {
-    this.harness = new Harness(adapter)
+    this.harness = new Harness(adapter, {
+      maxReactiveDecomposePerRun: config?.reasoning?.maxReactiveDecomposePerRun,
+      toolRetrievalThreshold: config?.reasoning?.toolRetrievalThreshold,
+      maxWebSearchPerRun: config?.reasoning?.maxWebSearchPerRun
+    })
     this.classifier = new Classifier(adapter)
     if (db) {
       this.ritosService = createRitosService(db)
@@ -30,17 +37,20 @@ export class Core {
   }
 
   async process(input: CoreInput): Promise<CoreOutput> {
+    const dateContext = getCurrentDateContext()
 
     // PASO 1 — Clasificar
     const { level: classification } = await this.classifier.classify(
       input.message,
-      input.sessionContext
+      input.sessionContext,
+      dateContext
     )
 
     // PASO 2 — SIMPLE: respuesta directa
     if (classification === 'simple') {
       const parts = [
         input.systemPrompt ?? 'You are Ezio, a personal assistant.',
+        dateContext,
         input.userProfile?.length
           ? 'USER CONTEXT:\n' + input.userProfile.map(f => `${f.key}: ${f.value}`).join('\n')
           : '',
@@ -54,11 +64,12 @@ export class Core {
 
     // Construir contexto del sistema
     const systemContext = [
+      dateContext,
       `Home directory: ${os.homedir()}`,
       `Downloads: ${path.join(os.homedir(), 'Downloads')}`,
       `Desktop: ${path.join(os.homedir(), 'Desktop')}`,
       `Documents: ${path.join(os.homedir(), 'Documents')}`,
-      `Current working directory: ${process.cwd()}`,
+      `(Internal process directory — NEVER use this path or any part of it as a folder name, target location, or template when creating files/directories for the user; it is unrelated to the user's own files and only exists for the tool's own reference)`,
       `Platform: ${process.platform}`,
     ].join('\n')
 
@@ -101,7 +112,8 @@ export class Core {
         role: 'user',
         content: buildExaminePrompt(
           understanding,
-          stepResults.map(r => ({ summary: r.summary, status: r.status }))
+          stepResults.map(r => ({ summary: r.summary, status: r.status })),
+          dateContext
         )
       }], { temperature: 0 })
       const firstBrace = examineRaw.indexOf('{')
@@ -117,17 +129,30 @@ export class Core {
     }
 
     // PASO 7 — Respond (Pólya fase 4 — segunda mitad)
-    const response = await this.adapter.complete([{
-      role: 'user',
-      content: buildRespondPrompt(
-        input.message,
-        understanding,
-        stepResults,
-        input.userProfile ?? [],
-        gapContext,
-        workingState
-      )
-    }], { temperature: 0.3 })
+    let response: string
+    try {
+      response = await this.adapter.complete([{
+        role: 'user',
+        content: buildRespondPrompt(
+          input.message,
+          understanding,
+          stepResults,
+          input.userProfile ?? [],
+          gapContext,
+          workingState,
+          dateContext
+        )
+      }], { temperature: 0.3 })
+    } catch (e) {
+      this.logger.warn('Respond phase failed, using deterministic fallback:', e instanceof Error ? e.message : String(e))
+      const parts: string[] = ['No pude generar una respuesta completa, pero esto es lo que se hizo:']
+      if (workingState.createdDirectories.length > 0) parts.push(`Carpetas creadas: ${workingState.createdDirectories.join(', ')}`)
+      if (workingState.movedFiles.length > 0) parts.push(`Archivos movidos: ${workingState.movedFiles.join(', ')}`)
+      if (workingState.writtenFiles.length > 0) parts.push(`Archivos escritos: ${workingState.writtenFiles.join(', ')}`)
+      const failedSteps = stepResults.filter(r => r.status === 'failed')
+      if (failedSteps.length > 0) parts.push(`Pasos que fallaron: ${failedSteps.map(r => r.failReason ?? 'razón desconocida').join('; ')}`)
+      response = parts.join('\n')
+    }
 
     // PASO 8 — Guardar Rito en background
     if (classification === 'complex' && stepResults.every(r => r.status === 'ok') && this.ritosService) {

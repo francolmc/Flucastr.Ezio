@@ -1,12 +1,13 @@
 import type { ModelAdapter, Tool } from '@ezio/core'
 import { filesystemTools, filesystemExecutor } from './native/FilesystemTool'
 import { shellTools, shellExecutor } from './native/ShellTool'
-import { webSearchTools, webSearchExecutor } from './native/WebSearchTool'
+import { createWebSearchTool } from './native/WebSearchTool'
 import { McpRegistry, createMcpRegistry } from './mcp/McpRegistry'
 import { PostProcessor } from './PostProcessor'
 
 export interface ToolsProviderConfig {
   mcpServers?: Array<{ name: string, url: string, enabled?: boolean }>
+  tavilyApiKey?: string
   disableNative?: {
     filesystem?: boolean
     shell?: boolean
@@ -34,8 +35,9 @@ class ToolsProvider {
       Object.assign(this.nativeExecutors, shellExecutor)
     }
     if (!config.disableNative?.webSearch) {
-      this.nativeTools.push(...webSearchTools)
-      Object.assign(this.nativeExecutors, webSearchExecutor)
+      const { tools: wsTools, executor: wsExecutor } = createWebSearchTool({ tavilyApiKey: config.tavilyApiKey })
+      this.nativeTools.push(...wsTools)
+      Object.assign(this.nativeExecutors, wsExecutor)
     }
   }
 

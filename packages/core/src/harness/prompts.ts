@@ -1,5 +1,9 @@
 import type { HarnessContext, Tool } from '../types/index'
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  es: 'Spanish', pt: 'Portuguese', fr: 'French', de: 'German', it: 'Italian'
+}
+
 export function buildDoneCheckPrompt(
   objective: string,
   previousStepResult: string | null,
@@ -34,7 +38,8 @@ export function buildStepReasonPrompt(
   previousStepResult: string | null,
   workingStateBlock: string,
   memoryContext: string | null,
-  systemContext?: string
+  systemContext?: string,
+  rejectionContext?: string
 ): string {
   const toolList = tools
     .map(t => `- ${t.name}: ${t.description.split('\n')[0]}`)
@@ -42,6 +47,10 @@ export function buildStepReasonPrompt(
 
   let prompt = `${systemPromptBase}\n\n`
   prompt += `OBJECTIVE: ${objective}\n\n`
+
+  if (rejectionContext) {
+    prompt += `PREVIOUS ATTEMPT WAS REJECTED: ${rejectionContext}\nTry a different approach.\n\n`
+  }
 
   if (systemContext) {
     prompt += `SYSTEM CONTEXT:\n${systemContext}\n\n`
@@ -61,9 +70,61 @@ export function buildStepReasonPrompt(
 
   prompt += `AVAILABLE TOOLS:\n${toolList}\n\n`
 
+  prompt += `IMPORTANT: If the next action requires substantial free-form content as a parameter (writing a report, essay, code, documentation, or any long text into a file), you MUST draft the COMPLETE content here, in full, right now — not a description of what it will contain. Write the actual finished text. The next phase will copy it verbatim into the tool call; it cannot invent content that isn't written here.\n\n`
   prompt += `TASK: What is the single next action to make progress?
-Use WORKING STATE to understand what has been done and what remains.
-Reason in natural language. Do NOT produce JSON here.`
+  Use WORKING STATE to understand what has been done and what remains.
+  Reason in natural language. Do NOT produce JSON here.`
+
+  return prompt
+}
+
+export function buildFusedReasonPrompt(
+  objective: string,
+  stepFocus: string,
+  systemPromptBase: string,
+  tools: Tool[],
+  previousStepResult: string | null,
+  workingStateBlock: string,
+  memoryContext: string | null,
+  systemContext?: string,
+  rejectionContext?: string
+): string {
+  const toolList = tools
+    .map(t => `- ${t.name}: ${t.description.split('\n')[0]}`)
+    .join('\n')
+
+  let prompt = `${systemPromptBase}\n\n`
+  prompt += `First, write a line starting with exactly 'STATUS: YES' if the following OVERALL OBJECTIVE is now fully accomplished per WORKING STATE, or 'STATUS: NO' otherwise:\n`
+  prompt += `OVERALL OBJECTIVE: ${objective}\n\n`
+  prompt += `Then, on the following lines, reason about the single next action to accomplish this specific FOCUS (or write 'Objective complete, no further action needed' if STATUS is YES):\n`
+  prompt += `FOCUS: ${stepFocus}\n\n`
+
+  if (rejectionContext) {
+    prompt += `PREVIOUS ATTEMPT WAS REJECTED: ${rejectionContext}\nTry a different approach.\n\n`
+  }
+
+  if (systemContext) {
+    prompt += `SYSTEM CONTEXT:\n${systemContext}\n\n`
+  }
+
+  prompt += `${workingStateBlock}\n\n`
+
+  if (memoryContext) {
+    prompt += `${memoryContext}\n\n`
+    prompt += `CRITICAL: Do NOT repeat actions for data `
+    prompt += `already tracked in WORKING STATE above.\n\n`
+  }
+
+  if (previousStepResult) {
+    prompt += `LAST ACTION RESULT:\n${previousStepResult}\n\n`
+  }
+
+  prompt += `AVAILABLE TOOLS:\n${toolList}\n\n`
+
+  prompt += `IMPORTANT: If the next action requires substantial free-form content as a parameter (writing a report, essay, code, documentation, or any long text into a file), you MUST draft the COMPLETE content here, in full, right now — not a description of what it will contain. Write the actual finished text. The next phase will copy it verbatim into the tool call; it cannot invent content that isn't written here.\n\n`
+  prompt += `TASK: What is the single next action to make progress?
+  Use WORKING STATE to understand what has been done and what remains.
+  Reason in natural language. Do NOT produce JSON here.`
 
   return prompt
 }
@@ -118,6 +179,7 @@ RULES:
 - String values must be in double quotes
 - Array values must use JSON format: ["item1", "item2"]
 - Never use single quotes or unquoted values
+- If the REASONING above contains drafted long-form content (an essay, report, code, or similar) intended for a parameter like "content", copy it into the JSON EXACTLY as written — verbatim, complete, character for character. Do NOT summarize, shorten, paraphrase, or replace it with a placeholder or description.
 
 EXAMPLES of valid JSON:
   {"tool": "memory_set", "input": {"key": "my_files", "value": "file1.zip, file2.zip"}}
@@ -141,7 +203,7 @@ export function buildSummaryPrompt(
   const truncated = rawResult.slice(0, 1500)
   const keyOutputLimit = tool === 'list_directory' ? 3000 : 800
   const languageInstruction = targetLanguage && targetLanguage !== 'en'
-    ? `\nWrite the Key output in ${targetLanguage}.`
+    ? `\nWrite the Key output in ${LANGUAGE_NAMES[targetLanguage] ?? targetLanguage}.`
     : ''
 
   return `Summarize this tool execution for the next step.
@@ -166,5 +228,22 @@ export function buildVerifyPrompt(objective: string, result: string): string {
   prompt += `OBJECTIVE: ${objective}\n\n`
   prompt += `RESULT:\n${result}\n\n`
   prompt += `Respond with exactly YES or NO on the first line, followed by a sentence explaining why.`
+  prompt += `\nYou may reason first if needed, but your response MUST end with a final line that is exactly "ANSWER: YES" or "ANSWER: NO" — nothing after it.`
   return prompt
+}
+
+export function buildDecomposePrompt(
+  stuckObjective: string,
+  workingStateBlock: string,
+  stuckReason: string
+): string {
+  return `The following sub-goal is stuck and has not progressed:
+SUB-GOAL: ${stuckObjective}
+REASON IT'S STUCK: ${stuckReason}
+${workingStateBlock}
+
+Break this SUB-GOAL down into 2 or 3 smaller, concrete next actions
+that together would accomplish it. Each action must be achievable
+with a single tool call. List them as a numbered list, one per line,
+nothing else.`
 }

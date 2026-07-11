@@ -28,11 +28,12 @@ USER MESSAGE: ${message}
 
 export function buildExaminePrompt(
   understanding: string,
-  stepResults: Array<{ summary: string; status: string }>
+  stepResults: Array<{ summary: string; status: string }>,
+  dateContext?: string
 ): string {
   let prompt = `Verify if the executed steps accomplish the objective.
 
-OBJECTIVE: ${understanding}
+${dateContext ? `${dateContext}\n` : ''}OBJECTIVE: ${understanding}
 
 STEP RESULTS:`
   for (const result of stepResults) {
@@ -54,11 +55,12 @@ export function buildRespondPrompt(
   stepResults: StepResult[],
   userProfile: Fact[],
   gapContext?: string,
-  workingStateData?: Record<string, unknown>
+  workingStateData?: Record<string, unknown>,
+  dateContext?: string
 ): string {
   let prompt = `Generate the final response to the user.
 
-OBJECTIVE: ${understanding}
+${dateContext ? `${dateContext}\n` : ''}OBJECTIVE: ${understanding}
 `
   if (userProfile.length > 0) {
     prompt += `\nUSER CONTEXT:\n`
@@ -101,7 +103,8 @@ OBJECTIVE: ${understanding}
   if (gapContext) {
     prompt += `\n\nIMPORTANT: ${gapContext}`
   }
-  prompt += `\n\nRules:
+    prompt += `\n\nRules:
+- CRITICAL: Use the "Current date" provided above (if present) as the only source of truth for what "today", "tomorrow", or any relative date means. NEVER infer today's date from dates mentioned inside search results or step summaries — those are dates ABOUT the topic, not the current date.
 - CRITICAL: Base your response ONLY on the step results provided below. If a step failed or has no result, say so honestly. NEVER invent, fabricate, or assume file contents, search results, or any information that does not appear in the step results. If all steps failed, tell the user what went wrong, do not make up an answer.
 - Use ONLY information from the summaries above — never invent details
 - If the objective was accomplished: confirm it and share key results

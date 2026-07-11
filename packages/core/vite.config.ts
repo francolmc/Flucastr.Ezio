@@ -26,7 +26,12 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    globals: true
+    globals: true,
+    server: {
+      deps: {
+        external: [/^node:/]
+      }
+    }
   },
   plugins: [{
     name: 'copy-migrations',

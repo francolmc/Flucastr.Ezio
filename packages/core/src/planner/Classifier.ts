@@ -11,7 +11,7 @@ export class Classifier {
 
   constructor(private adapter: ModelAdapter) {}
 
-  async classify(message: string, sessionContext?: string): Promise<ClassificationResult> {
+  async classify(message: string, sessionContext?: string, dateContext?: string): Promise<ClassificationResult> {
     const prompt = `You are a task complexity classifier.
 Respond with ONLY valid JSON: {"level": "simple|moderate|complex", "reason": "..."}
 
@@ -25,19 +25,32 @@ CRITICAL RULE: Count the number of distinct tool calls required.
 - 1 tool call → moderate
 - 2+ tool calls → complex
 
-ADDITIONAL RULE:
-If the message contains 3 or more distinct action verbs that each require a different tool, classify as complex.
-Examples of action verbs: lista, crea, mueve, guarda, busca, escribe, elimina, list, create, move, save, search.
+ADDITIONAL CRITICAL RULES:
+- If the message contains 3 or more numbered steps (1. 2. 3.) → ALWAYS classify as complex, no exceptions
+- If the message contains words like "analiza", "analyze", "luego", "then", "después", "finally", "finalmente" combined with any file operation → complex
+- If the message asks to both SEARCH and CREATE/WRITE → always complex (minimum 2 chained tool calls)
+- If the message asks to GENERATE, CREATE, WRITE, or DRAW content (diagrams, code, poems, summaries, explanations, queries, tables, etc.) WITHOUT explicitly asking to save/write/persist it to a file, disk, or specific location → simple (the content goes directly in the response, no tool needed to "produce" it)
+- If the message ALSO explicitly asks to save/write/persist that generated content (e.g. "guárdalo en un archivo", "escríbelo en mi escritorio", "créalo como .md") → moderate/complex as normal, using write_file
+- If the message references a relative date (today, tomorrow, next week) or a specific date/event and asks about its current status, schedule, score, or outcome — treat it as needing a live web_search (moderate, or complex if combined with other actions) even if it superficially resembles a general-knowledge question. Use the provided current date to determine whether the referenced event is past, present, or future.
+- If the message asks about the CURRENT holder of a position, role, or title (president, CEO, champion, current leader, etc.) — even if it sounds like simple trivia — classify as moderate (needs a web_search), never simple. These facts change over time and the model's training data may be stale relative to the current date provided. This applies regardless of how confident the model might feel. Do NOT apply this rule to historical questions (e.g. "who was the first president").
 
 EXAMPLES:
+"genera un diagrama de secuencia en mermaid" → {"level":"simple","reason":"content generation only, no persistence requested"}
+"escribe un poema sobre el mar" → {"level":"simple","reason":"content generation only"}
+"dame un ejemplo de query SQL para esto" → {"level":"simple","reason":"content generation only"}
+"genera un diagrama en mermaid y guárdalo en un archivo .md" → {"level":"moderate","reason":"one write_file call after generating content"}
+"escribe un resumen del proyecto y déjalo en mi escritorio" → {"level":"moderate","reason":"one write_file call"}
+"busca los zip, guárdalos, crea carpeta, escribe informe" → {"level":"complex","reason":"multiple chained operations"}
+"1. list files 2. save to memory 3. create folder" → {"level":"complex","reason":"numbered sequence of 3 steps"}
+"analiza mi carpeta y crea un resumen" → {"level":"complex","reason":"analyze + create/write = 2+ chained tools"}
 "hola" → {"level":"simple","reason":"greeting"}
 "busca el clima" → {"level":"moderate","reason":"one web_search call"}
 "lista mis archivos" → {"level":"moderate","reason":"one list_directory call"}
-"busca X y crea un archivo con el resultado" → {"level":"complex","reason":"web_search then write_file"}
-"lista Downloads, crea carpetas y mueve archivos" → {"level":"complex","reason":"list_directory + create_directory x4 + move_file xN"}
-"organiza archivos en subcarpetas" → {"level":"complex","reason":"requires listing, creating dirs, and moving multiple files"}
+"que hora juega mañana Argentina en el mundial" → {"level":"moderate","reason":"references a relative future date, needs a live web_search for the current schedule"}
+"¿Quién es el actual presidente de Chile?" → {"level":"moderate","reason":"current officeholder question, needs verification via web_search regardless of apparent confidence"}
+"¿quién fue el primer presidente de Chile?" → {"level":"simple","reason":"historical question, no current holder involved"}
 
-USER MESSAGE: ${message.slice(0, 300)}
+${dateContext ? `${dateContext}\n` : ''}USER MESSAGE: ${message.slice(0, 300)}
 ${sessionContext ? `CONTEXT: ${sessionContext.slice(0, 200)}` : ''}
 
 JSON response:`

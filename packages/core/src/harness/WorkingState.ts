@@ -8,6 +8,7 @@ export interface WorkingStateData {
   lastTool: string
   lastResult: string
   stepNumber: number
+  toolCallCounts: Record<string, number>
 }
 
 export class WorkingState {
@@ -23,7 +24,8 @@ export class WorkingState {
       searchResults: [],
       lastTool: '',
       lastResult: '',
-      stepNumber: 0
+      stepNumber: 0,
+      toolCallCounts: {}
     }
   }
 
@@ -36,6 +38,7 @@ export class WorkingState {
     this.data.lastTool = tool
     this.data.lastResult = rawResult.slice(0, 500)
     this.data.stepNumber = stepNumber
+    this.data.toolCallCounts[tool] = (this.data.toolCallCounts[tool] ?? 0) + 1
 
     switch (tool) {
       case 'list_directory': {
@@ -104,6 +107,14 @@ export class WorkingState {
     lines.push(`Objective: ${this.data.objective}`)
     lines.push(`Step: ${this.data.stepNumber}`)
 
+    const callEntries = Object.entries(this.data.toolCallCounts)
+    lines.push('\nActions taken this run: ' + (
+      callEntries.length > 0
+        ? callEntries.map(([tool, count]) => `${tool} (×${count})`).join(', ')
+        : 'none yet'
+    ))
+    lines.push('IMPORTANT: If the objective requires an action to be performed (moving, creating, writing, sending, or any other mutating operation) and the tool that performs it does not appear above with a count greater than 0, that action has NOT happened yet — the objective is NOT complete regardless of how many read-only or exploratory tool calls were made.')
+
     const fileEntries = Object.entries(this.data.trackedFiles)
     if (fileEntries.length > 0) {
       lines.push('\nFiles found:')
@@ -140,5 +151,46 @@ export class WorkingState {
 
   getData(): WorkingStateData {
     return { ...this.data }
+  }
+
+  confirms(
+    objective: string,
+    toolName: string,
+    toolInput: Record<string, unknown>
+  ): 'confirmed' | 'unknown' {
+    switch (toolName) {
+      case 'move_file': {
+        const source = toolInput.source as string
+        if (source && this.data.movedFiles.includes(source)) {
+          return 'confirmed'
+        }
+        break
+      }
+      case 'create_directory': {
+        const path = toolInput.path as string
+        if (path && this.data.createdDirectories.includes(path)) {
+          return 'confirmed'
+        }
+        break
+      }
+      case 'write_file': {
+        const path = toolInput.path as string
+        if (path && this.data.writtenFiles.includes(path)) {
+          return 'confirmed'
+        }
+        break
+      }
+      case 'list_directory':
+      case 'search_files': {
+        const path = (toolInput.path as string) ?? 'unknown'
+        const filter = (toolInput.filter as string) ?? 'all'
+        const key = `${path}:${filter}`
+        if (this.data.trackedFiles[key] !== undefined) {
+          return 'confirmed'
+        }
+        break
+      }
+    }
+    return 'unknown'
   }
 }

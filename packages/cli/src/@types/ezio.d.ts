@@ -31,6 +31,7 @@ declare module '@ezio/core' {
       maxPlanSteps: number
       maxValidationIterations: number
       twoPhaseReasoning: boolean
+      toolRetrievalThreshold?: number
     }
     provider?: 'ollama' | 'anthropic' | 'google' | 'openai'
     apiKey?: string
@@ -42,6 +43,7 @@ declare module '@ezio/core' {
     maxPlanSteps: number
     maxValidationIterations: number
     twoPhaseReasoning: boolean
+    toolRetrievalThreshold: number
   }
 
   export class ConfigService {

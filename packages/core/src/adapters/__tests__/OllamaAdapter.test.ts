@@ -59,7 +59,8 @@ describe('OllamaAdapter', () => {
           { role: 'system', content: 'You are helpful' },
           { role: 'user', content: 'Hello' }
         ],
-        stream: false
+        stream: false,
+        options: { temperature: 0.7 }
       })
     }))
   })

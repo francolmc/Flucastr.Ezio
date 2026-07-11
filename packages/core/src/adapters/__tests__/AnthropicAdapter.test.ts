@@ -59,6 +59,7 @@ describe('AnthropicAdapter', () => {
       model: 'claude-3-sonnet',
       messages: [{ role: 'user', content: 'Hello' }],
       max_tokens: 4096,
+      temperature: 0.7,
       system: 'You are helpful'
     })
     expect(fetchCall[1].headers).toEqual({

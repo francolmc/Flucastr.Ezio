@@ -25,7 +25,8 @@ async function main() {
   }
 
   const toolsProvider = createToolsProvider({
-    mcpServers: config.mcpServers ?? []
+    mcpServers: config.mcpServers ?? [],
+    tavilyApiKey: config.tools?.tavilyApiKey
   })
   const tools = await toolsProvider.getTools()
   const adapter = ConfigService.getActiveAdapter(config)

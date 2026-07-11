@@ -39,7 +39,7 @@ const write_file: Tool = {
 
 const list_directory: Tool = {
   name: 'list_directory',
-  description: 'List files and directories at the given path. Use filter to narrow by extension (e.g. "*.zip"), use limit to cap results.',
+  description: 'List files and directories at the given path. Use filter to narrow by glob pattern — supports "*" (any characters) and "?" (one character), e.g. "*.zip", "prueba*", "*veterinaria*". Multiple patterns can be separated by ";" or ",", e.g. "*.pdf;*.docx". Use limit to cap results.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -121,36 +121,72 @@ async function executeWriteFile(input: Record<string, unknown>): Promise<string>
   }
 }
 
+function globToRegex(pattern: string): RegExp {
+  const escaped = pattern
+    .trim()
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.')
+  return new RegExp(`^${escaped}$`, 'i')
+}
+
+function buildFilterMatcher(filter: string | undefined): ((name: string) => boolean) | null {
+  if (!filter) return null
+  const patterns = filter.split(/[;,]/).map(p => p.trim()).filter(Boolean)
+  if (patterns.length === 0) return null
+  const regexes = patterns.map(globToRegex)
+  return (name: string) => regexes.some(r => r.test(name))
+}
+
 async function executeListDirectory(input: Record<string, unknown>): Promise<string> {
   const dirPath = expandPath(input.path as string)
 
   try {
-    const filterExt = (input.filter as string | undefined)
-      ?.replace('*', '')
-      .toLowerCase()
+    const filterStr = input.filter as string | undefined
+    const matchesFilter = buildFilterMatcher(filterStr)
 
     const limit = input.limit as number | undefined
 
     const allEntries = await fs.readdir(dirPath, { withFileTypes: true })
 
-    let entries = filterExt
-      ? allEntries.filter(e =>
-          e.isDirectory() || e.name.toLowerCase().endsWith(filterExt)
-        )
-      : allEntries
+    let entries: typeof allEntries
+    let totalFiltered: number
 
-    if (limit && limit > 0) {
-      entries = entries.slice(0, limit)
-    }
+    if (matchesFilter) {
+      const matched = allEntries.filter(e => matchesFilter(e.name))
+      const unmatchedDirs = allEntries.filter(e => e.isDirectory() && !matchesFilter(e.name))
+      entries = limit && limit > 0 ? matched.slice(0, limit) : matched
+      totalFiltered = matched.filter(e => e.isFile()).length
 
-    const lines: string[] = []
+      const lines: string[] = []
 
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        lines.push(`[DIR]  ${entry.name}/`)
-      } else {
-        if (filterExt) {
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          lines.push(`[DIR]  ${entry.name}/`)
+        } else {
           lines.push(`[FILE] ${entry.name}`)
+        }
+      }
+
+      if (unmatchedDirs.length > 0) {
+        lines.push(`\n(${unmatchedDirs.length} other directories not matching filter, not shown)`)
+      }
+
+      lines.push(`\nTotal: ${entries.length} items${filterStr ? ` (${totalFiltered} files matching ${filterStr})` : ''}`)
+
+      return lines.join('\n')
+    } else {
+      entries = allEntries
+      if (limit && limit > 0) {
+        entries = entries.slice(0, limit)
+      }
+      totalFiltered = allEntries.length
+
+      const lines: string[] = []
+
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          lines.push(`[DIR]  ${entry.name}/`)
         } else {
           try {
             const fullPath = path.join(dirPath, entry.name)
@@ -161,16 +197,11 @@ async function executeListDirectory(input: Record<string, unknown>): Promise<str
           }
         }
       }
+
+      lines.push(`\nTotal: ${entries.length} items`)
+
+      return lines.join('\n')
     }
-
-    const totalFiltered = filterExt
-      ? allEntries.filter(e => e.isFile() && e.name.toLowerCase().endsWith(filterExt)).length
-      : allEntries.length
-
-    lines.push(`\nTotal: ${entries.length} items${filterExt ? ` (${totalFiltered} files matching ${filterExt})` : ''}`)
-
-    return lines.join('\n')
-
   } catch (error) {
     if (error instanceof Error && 'code' in error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -184,10 +215,20 @@ async function executeListDirectory(input: Record<string, unknown>): Promise<str
 async function executeCreateDirectory(input: Record<string, unknown>): Promise<string> {
   const dirPath = expandPath(input.path as string)
   try {
-    await fs.mkdir(dirPath, { recursive: true })
-    return `Directory created: ${dirPath}`
+    const stat = await fs.stat(dirPath)
+    if (stat.isDirectory()) {
+      return `Directory already exists: ${dirPath}`
+    }
+    throw Object.assign(new Error('Path exists as file'), { code: 'EEXIST' })
   } catch (error) {
-    return `Error creating directory: ${error instanceof Error ? error.message : String(error)}`
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw error
+    }
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      await fs.mkdir(dirPath, { recursive: true })
+      return `Directory created: ${dirPath}`
+    }
+    throw error
   }
 }
 
