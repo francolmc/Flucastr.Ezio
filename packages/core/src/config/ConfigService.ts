@@ -22,6 +22,11 @@ interface ReasoningConfig {
   maxWebSearchPerRun: number
 }
 
+export interface LoggingConfig {
+  enabled?: boolean
+  retentionDays?: number
+}
+
 export interface EzioConfig {
   model: { provider: 'ollama' | 'anthropic' | 'google'; name: string }
   providers: {
@@ -38,6 +43,7 @@ export interface EzioConfig {
   apiKey?: string
   baseUrl?: string
   userId?: string
+  logging?: LoggingConfig
 }
 
 const SUPPORTED_PROVIDERS = ['ollama', 'anthropic', 'google'] as const

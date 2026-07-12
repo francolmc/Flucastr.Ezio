@@ -2,11 +2,17 @@ import type { ModelAdapter } from '../adapters/ModelAdapter'
 import type { VerifierResult } from '../types/index'
 import { buildVerifyPrompt } from './prompts'
 import { createLogger } from '../utils/Logger'
+import { logEvent } from '../EventLogger'
+import type { DatabaseSync } from 'node:sqlite'
 
 export class Verifier {
   private logger = createLogger('Verifier')
 
-  constructor(private adapter: ModelAdapter) {}
+  constructor(
+    private adapter: ModelAdapter,
+    private runId?: string,
+    private db?: DatabaseSync | null
+  ) {}
 
   private parseAnswer(response: string): 'YES' | 'NO' | null {
     const lines = response.split('\n').map(l => l.trim()).filter(Boolean)

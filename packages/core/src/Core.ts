@@ -11,6 +11,7 @@ import {
 } from './planner/prompts'
 import { ConfigService, type EzioConfig } from './config/ConfigService'
 import { getCurrentDateContext } from './utils/DateContext'
+import { generateRunId, setLoggingEnabled, logEvent } from './EventLogger'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
@@ -19,12 +20,17 @@ export class Core {
   private classifier: Classifier
   private ritosService: RitosService | null = null
   private logger = createLogger('Core')
+  private db: import('node:sqlite').DatabaseSync | null = null
 
   constructor(
     private adapter: ModelAdapter,
     db?: import('node:sqlite').DatabaseSync,
     config?: EzioConfig
   ) {
+    this.db = db ?? null
+    if (config?.logging?.enabled !== undefined) {
+      setLoggingEnabled(config.logging.enabled)
+    }
     this.harness = new Harness(adapter, {
       maxReactiveDecomposePerRun: config?.reasoning?.maxReactiveDecomposePerRun,
       toolRetrievalThreshold: config?.reasoning?.toolRetrievalThreshold,
@@ -38,6 +44,7 @@ export class Core {
 
   async process(input: CoreInput): Promise<CoreOutput> {
     const dateContext = getCurrentDateContext()
+    const runId = generateRunId()
 
     // PASO 1 — Clasificar
     const { level: classification } = await this.classifier.classify(
@@ -45,6 +52,15 @@ export class Core {
       input.sessionContext,
       dateContext
     )
+
+    logEvent(this.db, {
+      ts: Date.now(),
+      runId,
+      component: 'Classifier',
+      event: 'classification',
+      level: 'info',
+      data: { classification, model: this.adapter.model }
+    })
 
     // PASO 2 — SIMPLE: respuesta directa
     if (classification === 'simple') {
@@ -102,7 +118,9 @@ export class Core {
         systemContext
       },
       toolRegistry,
-      input.tools
+      input.tools,
+      runId,
+      this.db
     )
 
     // PASO 6 — Examine (Pólya fase 4 — primera mitad)

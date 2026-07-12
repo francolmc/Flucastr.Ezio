@@ -6,6 +6,8 @@ import { createLogger } from '../utils/Logger'
 import { WorkingMemory } from './WorkingMemory'
 import { WorkingState } from './WorkingState'
 import { Verifier } from './Verifier'
+import { logEvent } from '../EventLogger'
+import type { DatabaseSync } from 'node:sqlite'
 
 export interface HarnessOptions {
   maxReactiveDecomposePerRun?: number
@@ -18,9 +20,18 @@ export class Harness {
   private verifier: Verifier
   private toolRetrievalThreshold = 12
   private maxWebSearchPerRun = 5
+  private runId?: string
+  private db?: DatabaseSync | null
 
-  constructor(private adapter: ModelAdapter, private options: HarnessOptions = {}) {
-    this.verifier = new Verifier(adapter)
+  constructor(
+    private adapter: ModelAdapter,
+    private options: HarnessOptions = {},
+    runId?: string,
+    db?: DatabaseSync | null
+  ) {
+    this.runId = runId
+    this.db = db
+    this.verifier = new Verifier(adapter, runId, db)
     if (options.toolRetrievalThreshold !== undefined) {
       this.toolRetrievalThreshold = options.toolRetrievalThreshold
     }
@@ -39,8 +50,12 @@ export class Harness {
     },
     toolRegistry: ToolRegistry,
     allTools: Tool[],
+    runId?: string,
+    db?: DatabaseSync | null,
     maxSteps = 15
   ): Promise<{ results: StepResult[], workingState: WorkingStateData }> {
+    const effectiveRunId = runId ?? this.runId ?? 'unknown'
+    const effectiveDb = db ?? this.db
     const results: StepResult[] = []
     const workingMemory = new WorkingMemory()
     const workingState = new WorkingState(objective)
@@ -75,12 +90,30 @@ export class Harness {
 
       if (microSteps.length === 0) {
         this.logger.warn(`[Harness] reactive decompose produced no usable steps, stopping`)
+        logEvent(effectiveDb, {
+          ts: Date.now(),
+          runId: effectiveRunId,
+          subtaskId: stepId,
+          component: 'Harness',
+          event: 'reactive_decompose_failed',
+          level: 'warn',
+          data: { subtaskId: stepId, reason: stuckReason }
+        })
         return false
       }
 
       reactiveDecomposeCount++
       microQueue.unshift(...microSteps)
       this.logger.info(`[Harness] stuck on "${stepFocus}", reactive decompose → ${microSteps.length} micro-steps`)
+      logEvent(effectiveDb, {
+        ts: Date.now(),
+        runId: effectiveRunId,
+        subtaskId: stepId,
+        component: 'Harness',
+        event: 'reactive_decompose_triggered',
+        level: 'info',
+        data: { subtaskId: stepId, reason: stuckReason }
+      })
       skipNoProgressUntilStepId = stepId + 1
       return true
     }
@@ -145,6 +178,15 @@ export class Harness {
           rejectionContext = 'Your previous attempt failed to produce a response. Try again with a clear, single next action.'
           isRetrying = true
           this.logger.warn(`step ${stepId} ReasonPhase failed, retrying`)
+          logEvent(effectiveDb, {
+            ts: Date.now(),
+            runId: effectiveRunId,
+            subtaskId: stepId,
+            component: 'Harness',
+            event: 'phase_retry_used',
+            level: 'info',
+            data: { phase: 'reason', subtaskId: stepId }
+          })
           continue
         }
         this.logger.warn(`step ${stepId} ReasonPhase failed after retry, marking failed`)
@@ -189,6 +231,15 @@ export class Harness {
           rejectionContext = 'Your previous response could not be converted into valid JSON. Provide ONE clear action with SIMPLE parameter values — for example, a single string for "query", not multiple concatenated strings or arrays where a string is expected.'
           isRetrying = true
           this.logger.warn(`step ${stepId} failed to serialize, retrying`)
+          logEvent(effectiveDb, {
+            ts: Date.now(),
+            runId: effectiveRunId,
+            subtaskId: stepId,
+            component: 'Harness',
+            event: 'phase_retry_used',
+            level: 'info',
+            data: { phase: 'serialize', subtaskId: stepId }
+          })
           continue
         }
         this.logger.warn(`step ${stepId} failed to serialize after retry, marking failed`)
@@ -234,13 +285,30 @@ export class Harness {
       } else if (workingMemory.isTool(toolName)) {
         rawResult = workingMemory.executeTool(toolName, toolInput)
       } else {
-        try {
-          rawResult = await toolRegistry.callTool(toolName, toolInput)
-        } catch (err) {
-          rawResult = err instanceof Error ? err.message : String(err)
+        const knownTools = allToolsWithMemory.map(t => t.name)
+        if (!knownTools.includes(toolName)) {
+          const closest = knownTools.find(t =>
+            t.length > 3 && (t.includes(toolName.slice(0, 3)) || toolName.includes(t.slice(0, 3)))
+          )
+          logEvent(effectiveDb, {
+            ts: Date.now(),
+            runId: effectiveRunId,
+            subtaskId: stepId,
+            component: 'Harness',
+            event: 'tool_name_corrupt',
+            level: 'warn',
+            data: { attempted: toolName, closest_match: closest, model: this.adapter.model }
+          })
+          rawResult = `Error: unknown tool "${toolName}". Did you mean "${closest}"?`
+        } else {
+          try {
+            rawResult = await toolRegistry.callTool(toolName, toolInput)
+          } catch (err) {
+            rawResult = err instanceof Error ? err.message : String(err)
+          }
+          if (toolName === 'web_search') webSearchCallCount++
+          if (cacheKey) webSearchCache.set(cacheKey, rawResult)
         }
-        if (toolName === 'web_search') webSearchCallCount++
-        if (cacheKey) webSearchCache.set(cacheKey, rawResult)
       }
 
       workingState.update(toolName, toolInput, rawResult, stepId)
@@ -261,6 +329,16 @@ export class Harness {
         costLLM = true
       }
 
+      logEvent(effectiveDb, {
+        ts: Date.now(),
+        runId: effectiveRunId,
+        subtaskId: stepId,
+        component: 'Verifier',
+        event: 'verifier_check',
+        level: 'info',
+        data: { grounded: grounded === 'confirmed', costLLM, approved }
+      })
+
       this.logger.debug(`step ${stepId} verify: grounded=${grounded === 'confirmed'}, approved=${approved}`)
 
       if (!approved) {
@@ -270,6 +348,15 @@ export class Harness {
           isRetrying = true
           continue
         } else {
+          logEvent(effectiveDb, {
+            ts: Date.now(),
+            runId: effectiveRunId,
+            subtaskId: stepId,
+            component: 'Verifier',
+            event: 'verifier_rejected_twice',
+            level: 'warn',
+            data: { subtaskId: stepId }
+          })
           previousStepResult = `Step ${stepId} failed: ${verifyReason}`
           results.push({
             subtaskId: stepId,
