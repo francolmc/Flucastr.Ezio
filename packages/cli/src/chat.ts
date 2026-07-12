@@ -35,6 +35,14 @@ async function main() {
 
   const baseExecutor = toolsProvider.createToolExecutor(adapter, targetLanguage)
 
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  })
+
+  const question = (prompt: string): Promise<string> =>
+    new Promise(resolve => rl.question(prompt, resolve))
+
   const safeExecutor = async (
     name: string,
     input: Record<string, unknown>
@@ -45,17 +53,9 @@ async function main() {
         ? `Move: ${input.source} → ${input.destination}`
         : `Delete: ${input.path}`
 
-      process.stdout.write(`\n⚠  ${preview}\n   Confirm? (y/n): `)
+      const answer = await question(`\n⚠  ${preview}\n   Confirm? (y/n): `)
 
-      const answer = await new Promise<string>(resolve => {
-        const handler = (data: Buffer) => {
-          process.stdin.removeListener('data', handler)
-          resolve(data.toString().trim().toLowerCase())
-        }
-        process.stdin.once('data', handler)
-      })
-
-      if (answer !== 'y' && answer !== 'yes') {
+      if (answer.trim().toLowerCase() !== 'y' && answer.trim().toLowerCase() !== 'yes') {
         return `Operation cancelled by user: ${preview}`
       }
     }
@@ -79,14 +79,6 @@ async function main() {
   console.log('│  type "exit" to quit            │')
   console.log('╰─────────────────────────────────╯')
   console.log()
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-
-  const question = (prompt: string): Promise<string> =>
-    new Promise(resolve => rl.question(prompt, resolve))
 
   const cleanup = () => {
     console.log('\nGoodbye.')

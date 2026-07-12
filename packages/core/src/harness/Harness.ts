@@ -261,11 +261,15 @@ export class Harness {
       const { tool: toolName, input: toolInput } = serialized
 
       const lastResult = results[results.length - 1]
-      if (
-        lastResult &&
+      const isRepeatedImmediate = lastResult &&
         lastResult.tool === toolName &&
         JSON.stringify(lastResult.toolInput) === JSON.stringify(toolInput)
-      ) {
+
+      const hasOkRepeat = results.some(
+        r => r.status === 'ok' && r.tool === toolName && JSON.stringify(r.toolInput) === JSON.stringify(toolInput)
+      )
+
+      if (isRepeatedImmediate || hasOkRepeat) {
         const recovered = await tryReactiveDecompose('same tool+input repeated')
         if (recovered) {
           continue

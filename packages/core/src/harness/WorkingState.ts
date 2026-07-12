@@ -4,6 +4,7 @@ export interface WorkingStateData {
   createdDirectories: string[]
   movedFiles: string[]
   writtenFiles: string[]
+  deletedFiles: string[]
   searchResults: string[]
   lastTool: string
   lastResult: string
@@ -21,6 +22,7 @@ export class WorkingState {
       createdDirectories: [],
       movedFiles: [],
       writtenFiles: [],
+      deletedFiles: [],
       searchResults: [],
       lastTool: '',
       lastResult: '',
@@ -76,6 +78,16 @@ export class WorkingState {
         if (rawResult.startsWith('Moved:') && source) {
           if (!this.data.movedFiles.includes(source)) {
             this.data.movedFiles.push(source)
+          }
+        }
+        break
+      }
+
+      case 'delete_file': {
+        const path = toolInput.path as string
+        if (rawResult.startsWith('Deleted:') && path) {
+          if (!this.data.deletedFiles.includes(path)) {
+            this.data.deletedFiles.push(path)
           }
         }
         break
@@ -138,6 +150,10 @@ export class WorkingState {
       lines.push(`\nFiles written: ${this.data.writtenFiles.join(', ')}`)
     }
 
+    if (this.data.deletedFiles.length > 0) {
+      lines.push(`\nFiles deleted: ${this.data.deletedFiles.join(', ')}`)
+    }
+
     if (this.data.searchResults.length > 0) {
       lines.push(`\nSearches done: ${this.data.searchResults.join(', ')}`)
     }
@@ -176,6 +192,13 @@ export class WorkingState {
       case 'write_file': {
         const path = toolInput.path as string
         if (path && this.data.writtenFiles.includes(path)) {
+          return 'confirmed'
+        }
+        break
+      }
+      case 'delete_file': {
+        const path = toolInput.path as string
+        if (path && this.data.deletedFiles.includes(path)) {
           return 'confirmed'
         }
         break
