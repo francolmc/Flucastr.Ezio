@@ -1,12 +1,18 @@
 import * as http from 'node:http'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { loadApiConfig } from './config.js'
-import { OllamaAdapter, AnthropicAdapter, OpenAIAdapter, GoogleAdapter } from '@ezio/core'
-import type { ModelAdapter } from '@ezio/core'
+import { OllamaAdapter, AnthropicAdapter, OpenAIAdapter, GoogleAdapter, ConfigService, createRitosService } from '@ezio/core'
+import type { ModelAdapter, RitosService } from '@ezio/core'
 import { runPipeline } from './pipeline.js'
 import type { MessagesRequest } from './pipeline.js'
 
+const config = loadApiConfig()
+const db = ConfigService.createDb(path.join(os.homedir(), '.ezio', 'api-ritos.db'))
+const ritos = createRitosService(db)
+const userId = config.userId ?? 'default-api-user'
+
 function buildAdapter(): ModelAdapter {
-  const config = loadApiConfig()
   const { provider, name, baseUrl, apiKey } = config.model
 
   switch (provider) {
@@ -46,7 +52,7 @@ const server = http.createServer(async (req, res) => {
 
       try {
         const adapter = buildAdapter()
-        const response = await runPipeline(adapter, request)
+        const response = await runPipeline(adapter, request, ritos, userId)
         return sendJson(res, 200, response)
       } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown error'
@@ -63,7 +69,6 @@ const server = http.createServer(async (req, res) => {
   }
 })
 
-const config = loadApiConfig()
 server.listen(config.port, () => {
   console.log(`@ezio/api listening on port ${config.port}`)
 })

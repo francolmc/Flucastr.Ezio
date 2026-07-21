@@ -4,6 +4,7 @@ import * as path from 'node:path'
 
 export interface ApiConfig {
   port: number
+  userId?: string
   model: {
     provider: 'ollama' | 'anthropic' | 'openai' | 'google'
     name: string

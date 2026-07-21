@@ -36,16 +36,22 @@ const mockAdapter = () => ({
   complete: vi.fn()
 })
 
+const mockRitos = () => ({
+  findRito: vi.fn().mockReturnValue(null),
+  saveRito: vi.fn().mockResolvedValue(undefined)
+})
+
 describe('runPipeline', () => {
   it('Caso A: plain text response when no tool call needed', async () => {
     const adapter = mockAdapter()
+    const ritos = mockRitos()
     adapter.complete
       .mockResolvedValueOnce('{"level":"simple","reason":"greeting"}')
       .mockResolvedValueOnce('Hola! Como estas?')
 
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'hola, como estas' }]
-    })
+    }, ritos as any, 'test-user')
 
     expect(result.content).toHaveLength(1)
     expect(result.content[0]).toEqual({ type: 'text', text: 'Hola! Como estas?' })
@@ -53,6 +59,7 @@ describe('runPipeline', () => {
 
   it('Caso B: returns tool_use when FormVerifier approves', async () => {
     const adapter = mockAdapter()
+    const ritos = mockRitos()
     adapter.complete
       .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
       .mockResolvedValueOnce('I should search the web for information about Argentina.')
@@ -62,7 +69,7 @@ describe('runPipeline', () => {
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
       tools: TOOLS
-    })
+    }, ritos as any, 'test-user')
 
     expect(result.content).toHaveLength(1)
     expect(result.content[0]).toMatchObject({
@@ -74,6 +81,7 @@ describe('runPipeline', () => {
 
   it('Caso C: throws error when FormVerifier rejects twice', async () => {
     const adapter = mockAdapter()
+    const ritos = mockRitos()
     adapter.complete
       .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
       .mockResolvedValueOnce('I should use web_search with query "Argentina".')
@@ -86,11 +94,14 @@ describe('runPipeline', () => {
     await expect(runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
       tools: TOOLS
-    })).rejects.toThrow('Verification rejected after retry')
+    }, ritos as any, 'test-user')).rejects.toThrow('Verification rejected after retry')
+
+    expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 
   it('Caso D: with more tools than threshold, tool retriever filters and result respects maxTools', async () => {
     const adapter = mockAdapter()
+    const ritos = mockRitos()
     adapter.complete
       .mockResolvedValueOnce('{"level":"moderate","reason":"use a tool"}')
       .mockResolvedValueOnce('tool_3')
@@ -101,7 +112,7 @@ describe('runPipeline', () => {
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'do something with tool_3' }],
       tools: MANY_TOOLS
-    })
+    }, ritos as any, 'test-user')
 
     expect(result.content).toHaveLength(1)
     expect(result.content[0]).toMatchObject({
@@ -109,5 +120,61 @@ describe('runPipeline', () => {
       name: 'tool_3',
       input: { value: 'test' }
     })
+  })
+
+  it('Con RitosService con match: el system incluye el bloque [RITO_PATTERN]', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    ritos.findRito.mockReturnValue({
+      rito: {
+        id: 'rito-1',
+        userId: 'test-user',
+        objectiveText: 'busca info sobre Argentina',
+        planSummary: '',
+        toolsUsed: ['web_search'],
+        resultSummary: 'encontro info',
+        guia: 'Usa web_search con query apropiada',
+        usoCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      },
+      similarity: 0.85
+    })
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"simple","reason":"greeting"}')
+      .mockResolvedValueOnce('Hola! Como estas?')
+
+    await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'busca info sobre Argentina' }]
+    }, ritos as any, 'test-user')
+
+    const systemCalls = adapter.complete.mock.calls.filter(call => call[0][0].role === 'system')
+    expect(systemCalls.length).toBeGreaterThan(0)
+    const completionSystemMsg = systemCalls[1][0][0].content
+    expect(completionSystemMsg).toContain('[RITO_PATTERN]')
+    expect(completionSystemMsg).toContain('Usa web_search con query apropiada')
+    expect(completionSystemMsg).toContain('[/RITO_PATTERN]')
+  })
+
+  it('Con FormVerifier rechazando dos veces: ritos.saveRito NUNCA se llama', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
+      .mockResolvedValueOnce('I should use web_search with query "Argentina".')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina"}}')
+      .mockResolvedValueOnce('NO')
+      .mockResolvedValueOnce('I should use read_file instead.')
+      .mockResolvedValueOnce('{"tool":"read_file","input":{"path":"notes.txt"}}')
+      .mockResolvedValueOnce('NO')
+
+    try {
+      await runPipeline(adapter as any, {
+        messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
+        tools: TOOLS
+      }, ritos as any, 'test-user')
+    } catch (_) { }
+
+    expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 })
