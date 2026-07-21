@@ -164,9 +164,11 @@ export class Core {
     } catch (e) {
       this.logger.warn('Respond phase failed, using deterministic fallback:', e instanceof Error ? e.message : String(e))
       const parts: string[] = ['No pude generar una respuesta completa, pero esto es lo que se hizo:']
-      if (workingState.createdDirectories.length > 0) parts.push(`Carpetas creadas: ${workingState.createdDirectories.join(', ')}`)
-      if (workingState.movedFiles.length > 0) parts.push(`Archivos movidos: ${workingState.movedFiles.join(', ')}`)
-      if (workingState.writtenFiles.length > 0) parts.push(`Archivos escritos: ${workingState.writtenFiles.join(', ')}`)
+      const confirmedEntries = Object.entries(workingState.confirmedCalls ?? {})
+      if (confirmedEntries.length > 0) {
+        const summaries = confirmedEntries.map(([tool, calls]) => `${tool} (×${calls.length})`)
+        parts.push(`Acciones confirmadas: ${summaries.join(', ')}`)
+      }
       const failedSteps = stepResults.filter(r => r.status === 'failed')
       if (failedSteps.length > 0) parts.push(`Pasos que fallaron: ${failedSteps.map(r => r.failReason ?? 'razón desconocida').join('; ')}`)
       response = parts.join('\n')
@@ -187,11 +189,7 @@ export class Core {
       stepResults,
       classification,
       workingStateData: {
-        trackedFiles: workingState.trackedFiles,
-        createdDirectories: workingState.createdDirectories,
-        movedFiles: workingState.movedFiles,
-        writtenFiles: workingState.writtenFiles,
-        searchResults: workingState.searchResults
+        confirmedCalls: workingState.confirmedCalls
       }
     }
   }

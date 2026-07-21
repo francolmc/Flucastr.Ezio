@@ -61,6 +61,11 @@ export class Harness {
     const workingState = new WorkingState(objective)
     const memoryTools = workingMemory.getTools()
     const allToolsWithMemory = [...allTools, ...memoryTools]
+    const mutatingTools = new Set(
+      allToolsWithMemory
+        .filter(t => t.annotations?.readOnlyHint !== true)
+        .map(t => t.name)
+    )
 
     let previousStepResult: string | null = null
     let stepId = 1
@@ -315,11 +320,14 @@ export class Harness {
         }
       }
 
-      workingState.update(toolName, toolInput, rawResult, stepId)
+      const calledToolDef = allToolsWithMemory.find(t => t.name === toolName)
+      const effectiveToolDef = calledToolDef ?? { name: toolName, description: '', inputSchema: {}, annotations: undefined }
+
+      workingState.update(effectiveToolDef, toolInput, rawResult, stepId)
 
       this.logger.debug(`step ${stepId} tool=${toolName} result:\n${rawResult.slice(0, 200)}`)
 
-      const grounded = workingState.confirms(stepFocus, toolName, toolInput)
+      const grounded = workingState.confirms(stepFocus, effectiveToolDef, toolInput)
       let approved: boolean
       let verifyReason: string | undefined
       let costLLM = false
@@ -398,9 +406,8 @@ export class Harness {
 
       this.logger.debug(`step ${stepId} summary:\n${summaryResponse.slice(0, 300)}`)
 
-      const resultLimit = ['list_directory', 'search_files'].includes(toolName)
-        ? 20000
-        : 2000
+      const calledTool = allToolsWithMemory.find(t => t.name === toolName)
+      const resultLimit = calledTool?.contextBudget ?? 2000
       previousStepResult = `Step ${stepId} (${toolName}):\n${rawResult.slice(0, resultLimit)}`
 
       results.push({
@@ -416,11 +423,7 @@ export class Harness {
 
       if (stepId > 4 && stepId > skipNoProgressUntilStepId) {
         const lastFour = results.slice(-4).map(r => r.tool)
-        const progressTools = [
-          'memory_set', 'create_directory', 'move_file',
-          'write_file', 'delete_file', 'run_command', 'web_search'
-        ]
-        const hasProgress = lastFour.some(t => progressTools.includes(t))
+        const hasProgress = lastFour.some(t => mutatingTools.has(t))
         if (!hasProgress) {
           const recovered = await tryReactiveDecompose('no progress in last 4 steps')
           if (recovered) {

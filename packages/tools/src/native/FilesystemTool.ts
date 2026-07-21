@@ -21,7 +21,8 @@ const read_file: Tool = {
       path: { type: 'string', description: 'Absolute path to the file' }
     },
     required: ['path']
-  }
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true }
 }
 
 const write_file: Tool = {
@@ -34,7 +35,8 @@ const write_file: Tool = {
       content: { type: 'string', description: 'Content to write' }
     },
     required: ['path', 'content']
-  }
+  },
+  annotations: { destructiveHint: true, idempotentHint: true }
 }
 
 const list_directory: Tool = {
@@ -48,7 +50,9 @@ const list_directory: Tool = {
       limit: { type: 'number', description: 'Optional max number of results to return (default: all)' }
     },
     required: ['path']
-  }
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true },
+  contextBudget: 20000
 }
 
 const create_directory: Tool = {
@@ -60,7 +64,8 @@ const create_directory: Tool = {
       path: { type: 'string', description: 'Absolute path to create' }
     },
     required: ['path']
-  }
+  },
+  annotations: { idempotentHint: true }
 }
 
 const move_file: Tool = {
@@ -73,7 +78,8 @@ const move_file: Tool = {
       destination: { type: 'string', description: 'Absolute path of destination' }
     },
     required: ['source', 'destination']
-  }
+  },
+  annotations: { destructiveHint: true, idempotentHint: false }
 }
 
 const delete_file: Tool = {
@@ -85,7 +91,8 @@ const delete_file: Tool = {
       path: { type: 'string', description: 'Absolute path to file to delete' }
     },
     required: ['path']
-  }
+  },
+  annotations: { destructiveHint: true, idempotentHint: true }
 }
 
 async function executeReadFile(input: Record<string, unknown>): Promise<string> {

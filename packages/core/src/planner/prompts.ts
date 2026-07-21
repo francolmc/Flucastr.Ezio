@@ -69,19 +69,13 @@ ${dateContext ? `${dateContext}\n` : ''}OBJECTIVE: ${understanding}
     }
   }
 
-  const trackedFiles = workingStateData?.trackedFiles as Record<string, string[]> | undefined
-  if (trackedFiles && Object.keys(trackedFiles).length > 0) {
-    const totalFiles = Object.values(trackedFiles).reduce((sum, files) => sum + files.length, 0)
-    prompt += `\nDATA AVAILABLE (will be displayed separately by the system):\n`
-    for (const [key, files] of Object.entries(trackedFiles)) {
-      const label = key.split(':')[1] ?? key
-      prompt += `- ${files.length} files matching [${label}]\n`
+  const confirmedCalls = workingStateData?.confirmedCalls as Record<string, Array<{ inputHash: string; inputPreview: string; stepNumber: number }>> | undefined
+  if (confirmedCalls && Object.keys(confirmedCalls).length > 0) {
+    prompt += `\nCONFIRMED ACTIONS (previously executed successfully):\n`
+    for (const [toolName, calls] of Object.entries(confirmedCalls)) {
+      prompt += `- ${toolName} (×${calls.length}): ${calls.map(c => c.inputPreview).join(', ')}\n`
     }
-    prompt += `\nINSTRUCTION: The file list will be displayed directly by the system.`
-    prompt += ` Your response should be a SHORT narrative (1-3 sentences) that:`
-    prompt += ` confirms what was found, mentions the total count (${totalFiles} files),`
-    prompt += ` and invites the user to take the next action.`
-    prompt += ` Do NOT list the files yourself.\n`
+    prompt += `\n`
   }
 
   prompt += `\nSTEP RESULTS:`

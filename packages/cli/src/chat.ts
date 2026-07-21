@@ -47,16 +47,18 @@ async function main() {
     name: string,
     input: Record<string, unknown>
   ): Promise<string> => {
-    const destructive = ['move_file', 'delete_file']
-    if (destructive.includes(name)) {
-      const preview = name === 'move_file'
-        ? `Move: ${input.source} → ${input.destination}`
-        : `Delete: ${input.path}`
+    const toolDef = tools.find(t => t.name === name)
+    const requiresConfirmation =
+      toolDef?.annotations?.destructiveHint === true ||
+      toolDef?.annotations === undefined
+
+    if (requiresConfirmation) {
+      const preview = `${name}: ${JSON.stringify(input)}`
 
       const answer = await question(`\n⚠  ${preview}\n   Confirm? (y/n): `)
 
       if (answer.trim().toLowerCase() !== 'y' && answer.trim().toLowerCase() !== 'yes') {
-        return `Operation cancelled by user: ${preview}`
+        return `Error: operation cancelled by user: ${preview}`
       }
     }
     return baseExecutor(name, input)
@@ -180,27 +182,14 @@ async function main() {
         console.log(`${RESPONSE_PREFIX}${result.response}`)
 
         const ws = result.workingStateData
-        if (ws) {
-          for (const [key, files] of Object.entries(ws.trackedFiles)) {
-            if (files.length === 0) continue
-            const label = key.split(':')[1] ?? key
-            console.log(`\n📁 Archivos [${label}] — ${files.length} en total:`)
-            files.forEach((f, i) => console.log(`   ${i + 1}. ${f}`))
-          }
-
-          if (ws.createdDirectories.length > 0) {
-            console.log(`\n✓ Carpetas creadas:`)
-            ws.createdDirectories.forEach(d => console.log(`   ${d}`))
-          }
-
-          if (ws.movedFiles.length > 0) {
-            console.log(`\n✓ Archivos movidos:`)
-            ws.movedFiles.forEach(f => console.log(`   ${f}`))
-          }
-
-          if (ws.writtenFiles.length > 0) {
-            console.log(`\n✓ Archivos escritos:`)
-            ws.writtenFiles.forEach(f => console.log(`   ${f}`))
+        if (ws && ws.confirmedCalls) {
+          const entries = Object.entries(ws.confirmedCalls)
+          if (entries.length > 0) {
+            console.log(`\nConfirmed actions:`)
+            for (const [toolName, calls] of entries) {
+              console.log(`  ${toolName} (×${calls.length})`)
+              calls.forEach(call => console.log(`    ${call.inputPreview}`))
+            }
           }
         }
 

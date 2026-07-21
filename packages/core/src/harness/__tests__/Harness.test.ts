@@ -25,7 +25,7 @@ describe('Harness', () => {
     fakeToolRegistry = {
       callTool: vi.fn().mockResolvedValue('File written successfully')
     }
-    fakeTool = { name: 'write_file', description: 'writes a file', inputSchema: {} }
+    fakeTool = { name: 'write_file', description: 'writes a file', inputSchema: {}, annotations: { destructiveHint: false } }
     baseContext = {
       systemPromptBase: 'You are a helpful assistant',
       classification: 'complex'

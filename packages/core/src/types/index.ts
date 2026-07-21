@@ -1,26 +1,18 @@
 export { ChatMessage } from '../adapters/ModelAdapter'
 
-export interface WorkingStateData {
-  objective: string
-  trackedFiles: Record<string, string[]>
-  createdDirectories: string[]
-  movedFiles: string[]
-  writtenFiles: string[]
-  searchResults: string[]
-  lastTool: string
-  lastResult: string
-  stepNumber: number
-}
-
-export interface Fact {
-  key: string
-  value: string
+export interface ToolAnnotations {
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
 }
 
 export interface Tool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  annotations?: ToolAnnotations
+  contextBudget?: number
 }
 
 export interface ToolRegistry {
@@ -70,17 +62,33 @@ export interface CoreInput {
   targetLanguage?: string
 }
 
+export interface ConfirmedCall {
+  inputHash: string
+  inputPreview: string
+  stepNumber: number
+}
+
+export interface WorkingStateData {
+  objective: string
+  confirmedCalls: Record<string, ConfirmedCall[]>
+  lastTool: string
+  lastResult: string
+  stepNumber: number
+  toolCallCounts: Record<string, number>
+}
+
 export interface CoreOutput {
   response: string
   stepResults: StepResult[]
   classification: 'simple' | 'moderate' | 'complex'
   workingStateData?: {
-    trackedFiles: Record<string, string[]>
-    createdDirectories: string[]
-    movedFiles: string[]
-    writtenFiles: string[]
-    searchResults: string[]
+    confirmedCalls: Record<string, ConfirmedCall[]>
   }
+}
+
+export interface Fact {
+  key: string
+  value: string
 }
 
 export interface VerifierResult {

@@ -9,7 +9,8 @@ const web_search: Tool = {
       query: { type: 'string', description: 'Search query' }
     },
     required: ['query']
-  }
+  },
+  annotations: { readOnlyHint: true }
 }
 
 export interface WebSearchToolConfig {
