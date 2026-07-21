@@ -50,19 +50,11 @@ export class RitosService {
     const id = randomUUID()
     const now = Date.now()
 
-    this.db.exec(
+    const stmt = this.db.prepare(
       `INSERT OR IGNORE INTO ritos (id, user_id, objective_text, plan_summary, tools_used, result_summary, guia, uso_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-      id,
-      userId,
-      objectiveText,
-      '',
-      JSON.stringify(toolsUsed),
-      resultSummary,
-      guia,
-      now,
-      now
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
     )
+    stmt.run(id, userId, objectiveText, '', JSON.stringify(toolsUsed), resultSummary, guia, now, now)
   }
 
   findRito(userId: string, objective: string, threshold = 0.6): RitoMatch | null {
@@ -104,7 +96,8 @@ export class RitosService {
 
   private incrementUsage(id: string): void {
     const now = Date.now()
-    this.db.exec('UPDATE ritos SET uso_count = uso_count + 1, updated_at = ? WHERE id = ?', now, id)
+    const stmt = this.db.prepare('UPDATE ritos SET uso_count = uso_count + 1, updated_at = ? WHERE id = ?')
+    stmt.run(now, id)
   }
 }
 
