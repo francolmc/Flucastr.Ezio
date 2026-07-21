@@ -16,7 +16,12 @@ export class OllamaAdapter implements ModelAdapter {
         model: this.config.model,
         messages,
         stream: false,
-        options: { temperature: options?.temperature ?? 0.7 }
+        ...(options?.think !== undefined ? { think: options.think } : {}),
+        ...(options?.responseFormat === 'json' ? { format: 'json' } : {}),
+        options: {
+          temperature: options?.temperature ?? 0.7,
+          ...(options?.maxTokens !== undefined ? { num_predict: options.maxTokens } : {})
+        }
       })
     })
 

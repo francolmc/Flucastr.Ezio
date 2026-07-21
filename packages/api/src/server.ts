@@ -1,0 +1,69 @@
+import * as http from 'node:http'
+import { loadApiConfig } from './config.js'
+import { OllamaAdapter, AnthropicAdapter, OpenAIAdapter, GoogleAdapter } from '@ezio/core'
+import type { ModelAdapter } from '@ezio/core'
+import { runPipeline } from './pipeline.js'
+import type { MessagesRequest } from './pipeline.js'
+
+function buildAdapter(): ModelAdapter {
+  const config = loadApiConfig()
+  const { provider, name, baseUrl, apiKey } = config.model
+
+  switch (provider) {
+    case 'ollama':
+      return new OllamaAdapter({ baseUrl: baseUrl!, model: name })
+    case 'anthropic':
+      return new AnthropicAdapter({ apiKey: apiKey!, model: name })
+    case 'openai':
+      return new OpenAIAdapter({ apiKey: apiKey!, model: name })
+    case 'google':
+      return new GoogleAdapter({ apiKey: apiKey!, model: name })
+    default:
+      throw new Error(`Unknown provider: ${provider}`)
+  }
+}
+
+function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify(body))
+}
+
+const server = http.createServer(async (req, res) => {
+  if (req.method === 'POST' && req.url === '/v1/messages') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', async () => {
+      let request: MessagesRequest
+      try {
+        request = JSON.parse(body)
+      } catch {
+        return sendJson(res, 400, { error: 'Invalid JSON body' })
+      }
+
+      if (!request.messages || !Array.isArray(request.messages) || request.messages.length === 0) {
+        return sendJson(res, 400, { error: 'messages es requerido' })
+      }
+
+      try {
+        const adapter = buildAdapter()
+        const response = await runPipeline(adapter, request)
+        return sendJson(res, 200, response)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'unknown error'
+        if (message.includes('Verification rejected')) {
+          return sendJson(res, 422, { error: message })
+        }
+        console.error('[server] unexpected error:', err)
+        return sendJson(res, 500, { error: 'internal error' })
+      }
+    })
+  } else {
+    res.writeHead(404, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'not found' }))
+  }
+})
+
+const config = loadApiConfig()
+server.listen(config.port, () => {
+  console.log(`@ezio/api listening on port ${config.port}`)
+})

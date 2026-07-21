@@ -20,34 +20,25 @@ DEFINITIONS:
 - moderate: exactly ONE tool call completes the task.
 - complex: requires 2 or more tool calls in sequence.
 
-CRITICAL RULE: Count the number of distinct tool calls required.
-- 0 tool calls → simple
-- 1 tool call → moderate
-- 2+ tool calls → complex
+CRITICAL RULE: Count the distinct tool calls required (0=simple, 1=moderate, 2+=complex).
 
 ADDITIONAL CRITICAL RULES:
-- If the message contains 3 or more numbered steps (1. 2. 3.) → ALWAYS classify as complex, no exceptions
-- If the message contains words like "analiza", "analyze", "luego", "then", "después", "finally", "finalmente" combined with any file operation → complex
-- If the message asks to both SEARCH and CREATE/WRITE → always complex (minimum 2 chained tool calls)
-- If the message asks to GENERATE, CREATE, WRITE, or DRAW content (diagrams, code, poems, summaries, explanations, queries, tables, etc.) WITHOUT explicitly asking to save/write/persist it to a file, disk, or specific location → simple (the content goes directly in the response, no tool needed to "produce" it)
-- If the message ALSO explicitly asks to save/write/persist that generated content (e.g. "guárdalo en un archivo", "escríbelo en mi escritorio", "créalo como .md") → moderate/complex as normal, using write_file
-- If the message references a relative date (today, tomorrow, next week) or a specific date/event and asks about its current status, schedule, score, or outcome — treat it as needing a live web_search (moderate, or complex if combined with other actions) even if it superficially resembles a general-knowledge question. Use the provided current date to determine whether the referenced event is past, present, or future.
-- If the message asks about the CURRENT holder of a position, role, or title (president, CEO, champion, current leader, etc.) — even if it sounds like simple trivia — classify as moderate (needs a web_search), never simple. These facts change over time and the model's training data may be stale relative to the current date provided. This applies regardless of how confident the model might feel. Do NOT apply this rule to historical questions (e.g. "who was the first president").
+- 3+ numbered steps (1. 2. 3.) → always complex
+- analyze/create or analyze/write = complex (2+ chained tools)
+- SEARCH + CREATE/WRITE → complex
+- GENERATE/CREATE/WRITE/DRAW content WITHOUT asking to save it → simple (content goes in response)
+- GENERATE content AND explicitly ask to save/write/persist it (e.g. "guárdalo", "escríbelo", "créalo como .md") → moderate using write_file
+- Relative date references (today, tomorrow, next week) + current status/schedule/score → needs web_search (moderate/complex)
+- CURRENT officeholder/leader questions (president, CEO, champion) → moderate (needs web_search), never simple. Does NOT apply to historical questions ("first president", "who was").
 
 EXAMPLES:
-"genera un diagrama de secuencia en mermaid" → {"level":"simple","reason":"content generation only, no persistence requested"}
-"escribe un poema sobre el mar" → {"level":"simple","reason":"content generation only"}
-"dame un ejemplo de query SQL para esto" → {"level":"simple","reason":"content generation only"}
-"genera un diagrama en mermaid y guárdalo en un archivo .md" → {"level":"moderate","reason":"one write_file call after generating content"}
-"escribe un resumen del proyecto y déjalo en mi escritorio" → {"level":"moderate","reason":"one write_file call"}
-"busca los zip, guárdalos, crea carpeta, escribe informe" → {"level":"complex","reason":"multiple chained operations"}
-"1. list files 2. save to memory 3. create folder" → {"level":"complex","reason":"numbered sequence of 3 steps"}
-"analiza mi carpeta y crea un resumen" → {"level":"complex","reason":"analyze + create/write = 2+ chained tools"}
 "hola" → {"level":"simple","reason":"greeting"}
+"genera un poema sobre el mar" → {"level":"simple","reason":"content generation only, no persistence requested"}
+"genera un diagrama y guárdalo en un .md" → {"level":"moderate","reason":"generation with persistence requested"}
 "busca el clima" → {"level":"moderate","reason":"one web_search call"}
-"lista mis archivos" → {"level":"moderate","reason":"one list_directory call"}
-"que hora juega mañana Argentina en el mundial" → {"level":"moderate","reason":"references a relative future date, needs a live web_search for the current schedule"}
-"¿Quién es el actual presidente de Chile?" → {"level":"moderate","reason":"current officeholder question, needs verification via web_search regardless of apparent confidence"}
+"¿Quién es el actual presidente de Chile?" → {"level":"moderate","reason":"current officeholder needs web_search"}
+"1. lista archivos 2. guárdalos 3. crea carpeta" → {"level":"complex","reason":"numbered sequence of 3 steps"}
+"analiza mi carpeta y crea un resumen" → {"level":"complex","reason":"analyze + create = 2+ chained tools"}
 "¿quién fue el primer presidente de Chile?" → {"level":"simple","reason":"historical question, no current holder involved"}
 
 ${dateContext ? `${dateContext}\n` : ''}USER MESSAGE: ${message.slice(0, 300)}
@@ -56,9 +47,10 @@ ${sessionContext ? `CONTEXT: ${sessionContext.slice(0, 200)}` : ''}
 JSON response:`
 
     try {
+      this.logger.debug('Prompt length:', prompt.length)
       const raw = await this.adapter.complete(
         [{ role: 'system', content: prompt }, { role: 'user', content: message }],
-        { temperature: 0 }
+        { temperature: 0, responseFormat: 'json', maxTokens: 100, think: false }
       )
       this.logger.debug('Raw response:', raw.slice(0, 200))
 
@@ -78,7 +70,7 @@ Message: ${message.slice(0, 200)}`
 
       const retryRaw = await this.adapter.complete(
         [{ role: 'user', content: retryPrompt }],
-        { temperature: 0 }
+        { temperature: 0, responseFormat: 'json', maxTokens: 100, think: false }
       )
       this.logger.debug('Retry response:', retryRaw.slice(0, 200))
 
