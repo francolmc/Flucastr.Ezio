@@ -1,10 +1,15 @@
 import type { ModelAdapter, ChatMessage } from '@ezio/core'
 import { Classifier, getCurrentDateContext, createLogger } from '@ezio/core'
+import { ToolRetriever } from '@ezio/core'
 import { FormVerifier } from './FormVerifier.js'
 import { reasonPhase, serializePhase } from './reasoning.js'
 import type { AnthropicToolSchema } from './types.js'
+import { toInternalTools, backToExternalTools } from './toolMapping.js'
+import { pruneHistory } from './historyPruning.js'
 
 const logger = createLogger('Pipeline')
+
+const TOOL_RETRIEVAL_THRESHOLD = 12
 
 export interface MessagesRequest {
   system?: string
@@ -36,7 +41,19 @@ export async function runPipeline(
   const startTotal = Date.now()
   const tools = request.tools ?? []
   const system = request.system ?? 'You are a helpful assistant.'
-  const lastUserTurn = getLastUserTurn(request.messages)
+
+  const t0Prune = Date.now()
+  const pruneResult = await pruneHistory(adapter, request.messages)
+  const effectiveSystem = pruneResult.summary
+    ? `${system}\n\n${pruneResult.summary}`
+    : system
+  const lastUserTurn = getLastUserTurn(pruneResult.messages)
+  logger.info('pruneHistory', {
+    messagesIn: request.messages.length,
+    messagesOut: pruneResult.messages.length,
+    summaryApplied: pruneResult.summary !== null,
+    ms: Date.now() - t0Prune
+  })
 
   logger.info('request recibida', { messageCount: request.messages.length, toolCount: tools.length })
 
@@ -52,20 +69,29 @@ export async function runPipeline(
   if (classification.level === 'simple') {
     const t0 = Date.now()
     const response = await adapter.complete([
-      { role: 'system', content: system },
-      ...request.messages
+      { role: 'system', content: effectiveSystem },
+      ...pruneResult.messages
     ], { temperature: 0.7, maxTokens: request.max_tokens })
     logger.info('camino simple, respuesta directa', { ms: Date.now() - t0 })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
     return { content: [{ type: 'text', text: response }] }
   }
 
+  let filteredTools = tools
+  if (request.tools && request.tools.length > TOOL_RETRIEVAL_THRESHOLD) {
+    const internalTools = toInternalTools(request.tools)
+    const retriever = new ToolRetriever(adapter, internalTools)
+    const selected = await retriever.retrieve(lastUserTurn, 5)
+    filteredTools = backToExternalTools(selected, request.tools)
+    logger.info('tool filtering applied', { toolsIn: request.tools.length, toolsOut: filteredTools.length })
+  }
+
   const t0Reason = Date.now()
-  const reasonText = await reasonPhase(adapter, system, request.messages, tools)
+  const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, filteredTools)
   logger.info('reasonPhase', { ms: Date.now() - t0Reason, preview: reasonText.slice(0, 100) })
 
   const t0Serialize = Date.now()
-  const serialized = await serializePhase(adapter, reasonText, tools)
+  const serialized = await serializePhase(adapter, reasonText, filteredTools)
   logger.info('serializePhase', { ms: Date.now() - t0Serialize, tool: serialized?.tool ?? 'ninguna' })
 
   if (!serialized) {
@@ -76,7 +102,7 @@ export async function runPipeline(
   const verifier = new FormVerifier(adapter)
   const proposal = { name: serialized.tool, input: serialized.input }
   const t0Verify = Date.now()
-  const verifyResult = await verifier.verify(proposal, tools, lastUserTurn)
+  const verifyResult = await verifier.verify(proposal, filteredTools, lastUserTurn)
   logger.info('formVerifier', { ms: Date.now() - t0Verify, approved: verifyResult.approved, costLLM: verifyResult.costLLM })
 
   if (verifyResult.approved) {
@@ -88,12 +114,12 @@ export async function runPipeline(
 
   const retryReasonText = await reasonPhase(
     adapter,
-    `${system}\n\nPrevious verification failed: ${verifyResult.reason}\n\nRevise your reasoning.`,
-    request.messages,
-    tools
+    `${effectiveSystem}\n\nPrevious verification failed: ${verifyResult.reason}\n\nRevise your reasoning.`,
+    pruneResult.messages,
+    filteredTools
   )
 
-  const retrySerialized = await serializePhase(adapter, retryReasonText, tools)
+  const retrySerialized = await serializePhase(adapter, retryReasonText, filteredTools)
 
   if (!retrySerialized) {
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
@@ -101,7 +127,7 @@ export async function runPipeline(
   }
 
   const retryProposal = { name: retrySerialized.tool, input: retrySerialized.input }
-  const retryVerify = await verifier.verify(retryProposal, tools, lastUserTurn)
+  const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn)
 
   if (!retryVerify.approved) {
     throw new Error(`Verification rejected after retry: ${retryVerify.reason}`)

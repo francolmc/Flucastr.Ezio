@@ -23,6 +23,15 @@ const TOOLS: AnthropicToolSchema[] = [
   }
 ]
 
+const MANY_TOOLS: AnthropicToolSchema[] = Array.from({ length: 15 }, (_, i) => ({
+  name: `tool_${i}`,
+  description: `Tool number ${i}`,
+  input_schema: {
+    type: 'object',
+    properties: { value: { type: 'string' } }
+  }
+}))
+
 const mockAdapter = () => ({
   complete: vi.fn()
 })
@@ -78,5 +87,27 @@ describe('runPipeline', () => {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
       tools: TOOLS
     })).rejects.toThrow('Verification rejected after retry')
+  })
+
+  it('Caso D: with more tools than threshold, tool retriever filters and result respects maxTools', async () => {
+    const adapter = mockAdapter()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"use a tool"}')
+      .mockResolvedValueOnce('tool_3')
+      .mockResolvedValueOnce('I should use tool_3.')
+      .mockResolvedValueOnce('{"tool":"tool_3","input":{"value":"test"}}')
+      .mockResolvedValueOnce('YES')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'do something with tool_3' }],
+      tools: MANY_TOOLS
+    })
+
+    expect(result.content).toHaveLength(1)
+    expect(result.content[0]).toMatchObject({
+      type: 'tool_use',
+      name: 'tool_3',
+      input: { value: 'test' }
+    })
   })
 })
