@@ -6,8 +6,9 @@ export interface ChatMessage {
 export interface CompletionOptions {
   temperature?: number
   maxTokens?: number
-  responseFormat?: 'json'
+  responseFormat?: 'json' | Record<string, unknown>
   think?: boolean
+  numCtx?: number
 }
 
 export interface ModelAdapter {

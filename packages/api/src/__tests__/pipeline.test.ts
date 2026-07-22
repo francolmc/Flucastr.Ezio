@@ -25,12 +25,31 @@ const TOOLS: AnthropicToolSchema[] = [
 
 const MANY_TOOLS: AnthropicToolSchema[] = Array.from({ length: 15 }, (_, i) => ({
   name: `tool_${i}`,
-  description: `Tool number ${i}`,
+  description: `Tool number ${i} with a moderately long description to ensure the total token count exceeds the filtering threshold. `.repeat(15) + `Tool ${i} does something useful.`,
   input_schema: {
     type: 'object',
     properties: { value: { type: 'string' } }
   }
 }))
+
+const LONG_DESCRIPTION = 'A'.repeat(3000)
+const BIG_TOOLS: AnthropicToolSchema[] = [
+  {
+    name: 'tool_a',
+    description: `This is a very long description for tool_a that contains detailed information about what this tool does. ${LONG_DESCRIPTION}`,
+    input_schema: { type: 'object', properties: { value: { type: 'string' } } }
+  },
+  {
+    name: 'tool_b',
+    description: `This is a very long description for tool_b that contains detailed information about what this tool does. ${LONG_DESCRIPTION}`,
+    input_schema: { type: 'object', properties: { value: { type: 'string' } } }
+  },
+  {
+    name: 'tool_c',
+    description: `This is a very long description for tool_c that contains detailed information about what this tool does. ${LONG_DESCRIPTION}`,
+    input_schema: { type: 'object', properties: { value: { type: 'string' } } }
+  }
+]
 
 const mockAdapter = () => ({
   complete: vi.fn()
@@ -186,5 +205,29 @@ describe('runPipeline', () => {
     } catch (_) { }
 
     expect(ritos.saveRito).not.toHaveBeenCalled()
+  })
+
+  it('Token-based threshold: with 3 large tools (>2000 tokens estimated), filtering is triggered even though count < 12', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"use a tool"}')
+      .mockResolvedValueOnce('tool_b')
+      .mockResolvedValueOnce('I should use tool_b.')
+      .mockResolvedValueOnce('{"tool":"tool_b","input":{"value":"test"}}')
+      .mockResolvedValueOnce('YES')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'use tool_b' }],
+      tools: BIG_TOOLS
+    }, ritos as any, 'test-user', 'test-model')
+
+    expect(result.content).toHaveLength(1)
+    expect(result.content[0]).toMatchObject({
+      type: 'tool_use',
+      name: 'tool_b',
+      input: { value: 'test' }
+    })
+    expect(result.content[0]).toHaveProperty('id')
   })
 })

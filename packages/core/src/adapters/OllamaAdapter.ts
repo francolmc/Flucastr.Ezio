@@ -17,10 +17,15 @@ export class OllamaAdapter implements ModelAdapter {
         messages,
         stream: false,
         ...(options?.think !== undefined ? { think: options.think } : {}),
-        ...(options?.responseFormat === 'json' ? { format: 'json' } : {}),
+        ...(options?.responseFormat === 'json'
+          ? { format: 'json' }
+          : options?.responseFormat
+            ? { format: options.responseFormat }
+            : {}),
         options: {
           temperature: options?.temperature ?? 0.7,
-          ...(options?.maxTokens !== undefined ? { num_predict: options.maxTokens } : {})
+          ...(options?.maxTokens !== undefined ? { num_predict: options.maxTokens } : {}),
+          ...(options?.numCtx !== undefined ? { num_ctx: options.numCtx } : {})
         }
       })
     })

@@ -11,7 +11,12 @@ import { randomUUID } from 'node:crypto'
 
 const logger = createLogger('Pipeline')
 
-const TOOL_RETRIEVAL_THRESHOLD = 12
+const TOOL_TOKEN_THRESHOLD = 2000
+const DEFAULT_NUM_CTX = 8192
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4)
+}
 
 export interface MessagesRequest {
   system?: string
@@ -111,7 +116,7 @@ export async function runPipeline(
     const response = await adapter.complete([
       { role: 'system', content: effectiveSystem },
       ...pruneResult.messages
-    ], { temperature: 0.7, maxTokens: request.max_tokens })
+    ], { temperature: 0.7, maxTokens: request.max_tokens, numCtx: DEFAULT_NUM_CTX })
     logger.info('camino simple, respuesta directa', { ms: Date.now() - t0 })
     const resultSummary = response.length > 150 ? response.slice(0, 150) : response
     const guia = 'Respuesta directa sin tool, clasificación simple'
@@ -122,20 +127,23 @@ export async function runPipeline(
   }
 
   let filteredTools = tools
-  if (request.tools && request.tools.length > TOOL_RETRIEVAL_THRESHOLD) {
+  const toolsJson = JSON.stringify(request.tools)
+  const toolsTokenEstimate = estimateTokens(toolsJson)
+  if (request.tools && toolsTokenEstimate > TOOL_TOKEN_THRESHOLD) {
+    logger.debug('tool filtering triggered', { toolCount: request.tools.length, tokenEstimate: toolsTokenEstimate })
     const internalTools = toInternalTools(request.tools)
     const retriever = new ToolRetriever(adapter, internalTools)
     const selected = await retriever.retrieve(lastUserTurn, 5)
     filteredTools = backToExternalTools(selected, request.tools)
-    logger.info('tool filtering applied', { toolsIn: request.tools.length, toolsOut: filteredTools.length })
+    logger.info('tool filtering applied', { toolsIn: request.tools.length, toolsOut: filteredTools.length, selected: filteredTools.map(t => t.name) })
   }
 
   const t0Reason = Date.now()
-  const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, filteredTools)
+  const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, filteredTools, DEFAULT_NUM_CTX)
   logger.info('reasonPhase', { ms: Date.now() - t0Reason, preview: reasonText.slice(0, 100) })
 
   const t0Serialize = Date.now()
-  const serialized = await serializePhase(adapter, reasonText, filteredTools)
+  const serialized = await serializePhase(adapter, reasonText, filteredTools, DEFAULT_NUM_CTX)
   logger.info('serializePhase', { ms: Date.now() - t0Serialize, tool: serialized?.tool ?? 'ninguna' })
 
   if (!serialized) {
@@ -169,10 +177,11 @@ export async function runPipeline(
     adapter,
     `${effectiveSystem}\n\nPrevious verification failed: ${verifyResult.reason}\n\nRevise your reasoning.`,
     pruneResult.messages,
-    filteredTools
+    filteredTools,
+    DEFAULT_NUM_CTX
   )
 
-  const retrySerialized = await serializePhase(adapter, retryReasonText, filteredTools)
+  const retrySerialized = await serializePhase(adapter, retryReasonText, filteredTools, DEFAULT_NUM_CTX)
 
   if (!retrySerialized) {
     const resultSummary = retryReasonText.length > 150 ? retryReasonText.slice(0, 150) : retryReasonText

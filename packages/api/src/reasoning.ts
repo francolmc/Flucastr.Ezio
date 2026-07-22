@@ -15,7 +15,8 @@ export async function reasonPhase(
   adapter: ModelAdapter,
   system: string,
   messages: ChatMessage[],
-  tools: AnthropicToolSchema[]
+  tools: AnthropicToolSchema[],
+  numCtx?: number
 ): Promise<string> {
   const toolsDescription = buildToolsDescription(tools)
   const prompt = `${system.trim()}
@@ -30,7 +31,7 @@ Based on the available tools and conversation, determine the next action. If a t
 
   return adapter.complete([
     { role: 'user', content: prompt }
-  ], { temperature: 0 })
+  ], { temperature: 0, numCtx })
 }
 
 function parseJson(response: string): { tool: string; input: Record<string, unknown> } | null {
@@ -103,7 +104,8 @@ function suggestsToolCall(text: string, tools: AnthropicToolSchema[]): boolean {
 export async function serializePhase(
   adapter: ModelAdapter,
   reasonText: string,
-  tools: AnthropicToolSchema[]
+  tools: AnthropicToolSchema[],
+  numCtx?: number
 ): Promise<{ tool: string; input: Record<string, unknown> } | null> {
   if (!suggestsToolCall(reasonText, tools)) {
     return null
@@ -124,7 +126,7 @@ JSON response:`
 
   const response = await adapter.complete([
     { role: 'user', content: prompt }
-  ], { temperature: 0 })
+  ], { temperature: 0, numCtx })
 
   if (response.trim() === 'NO_TOOL') {
     return null

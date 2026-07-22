@@ -160,4 +160,25 @@ describe('Classifier', () => {
     const result = await classifier.classify('hola')
     expect(result.level).toBe('simple')
   })
+
+  it('auto-correct: requires_environment_action=true + level=simple → level becomes moderate', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('{"requires_environment_action":true,"level":"simple","reason":"lists files"}')
+    const classifier = new Classifier(fakeAdapter)
+    const result = await classifier.classify('lista los archivos en este directorio')
+    expect(result.level).toBe('moderate')
+  })
+
+  it('auto-correct: requires_environment_action=false + level=simple → no correction applied', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('{"requires_environment_action":false,"level":"simple","reason":"greeting"}')
+    const classifier = new Classifier(fakeAdapter)
+    const result = await classifier.classify('hola')
+    expect(result.level).toBe('simple')
+  })
+
+  it('auto-correct: requires_environment_action=true + level=moderate → no correction applied', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('{"requires_environment_action":true,"level":"moderate","reason":"one list_directory call"}')
+    const classifier = new Classifier(fakeAdapter)
+    const result = await classifier.classify('lista mis archivos')
+    expect(result.level).toBe('moderate')
+  })
 })
