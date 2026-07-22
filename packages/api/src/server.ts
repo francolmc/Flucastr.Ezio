@@ -6,6 +6,9 @@ import { OllamaAdapter, AnthropicAdapter, OpenAIAdapter, GoogleAdapter, ConfigSe
 import type { ModelAdapter, RitosService } from '@ezio/core'
 import { runPipeline } from './pipeline.js'
 import type { MessagesRequest } from './pipeline.js'
+import { normalizeMessages, normalizeSystem } from './normalizeMessages.js'
+import type { RawIncomingMessage } from './normalizeMessages.js'
+import { sendSSEResponse } from './sseResponse.js'
 
 const config = loadApiConfig()
 const db = ConfigService.createDb(path.join(os.homedir(), '.ezio', 'api-ritos.db'))
@@ -50,9 +53,19 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'messages es requerido' })
       }
 
+      const normalizedMessages = normalizeMessages(request.messages as RawIncomingMessage[])
+      const normalizedRequest: MessagesRequest = {
+        ...request,
+        messages: normalizedMessages,
+        system: normalizeSystem(request.system)
+      }
+
       try {
         const adapter = buildAdapter()
-        const response = await runPipeline(adapter, request, ritos, userId)
+        const response = await runPipeline(adapter, normalizedRequest, ritos, userId, config.model.name)
+        if (request.stream) {
+          return sendSSEResponse(res, response)
+        }
         return sendJson(res, 200, response)
       } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown error'

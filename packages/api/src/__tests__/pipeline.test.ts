@@ -51,10 +51,17 @@ describe('runPipeline', () => {
 
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'hola, como estas' }]
-    }, ritos as any, 'test-user')
+    }, ritos as any, 'test-user', 'test-model')
 
     expect(result.content).toHaveLength(1)
-    expect(result.content[0]).toEqual({ type: 'text', text: 'Hola! Como estas?' })
+    expect(result.content[0]).toMatchObject({ type: 'text', text: 'Hola! Como estas?' })
+    expect(result.id).toMatch(/^msg_/)
+    expect(result.type).toBe('message')
+    expect(result.role).toBe('assistant')
+    expect(result.model).toBe('test-model')
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.stop_sequence).toBe(null)
+    expect(result.usage).toEqual({ input_tokens: 0, output_tokens: expect.any(Number) })
   })
 
   it('Caso B: returns tool_use when FormVerifier approves', async () => {
@@ -69,7 +76,7 @@ describe('runPipeline', () => {
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
       tools: TOOLS
-    }, ritos as any, 'test-user')
+    }, ritos as any, 'test-user', 'test-model')
 
     expect(result.content).toHaveLength(1)
     expect(result.content[0]).toMatchObject({
@@ -77,6 +84,8 @@ describe('runPipeline', () => {
       name: 'web_search',
       input: { query: 'Argentina news' }
     })
+    expect(result.content[0]).toHaveProperty('id')
+    expect(result.stop_reason).toBe('tool_use')
   })
 
   it('Caso C: throws error when FormVerifier rejects twice', async () => {
@@ -94,7 +103,7 @@ describe('runPipeline', () => {
     await expect(runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
       tools: TOOLS
-    }, ritos as any, 'test-user')).rejects.toThrow('Verification rejected after retry')
+    }, ritos as any, 'test-user', 'test-model')).rejects.toThrow('Verification rejected after retry')
 
     expect(ritos.saveRito).not.toHaveBeenCalled()
   })
@@ -112,7 +121,7 @@ describe('runPipeline', () => {
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'do something with tool_3' }],
       tools: MANY_TOOLS
-    }, ritos as any, 'test-user')
+    }, ritos as any, 'test-user', 'test-model')
 
     expect(result.content).toHaveLength(1)
     expect(result.content[0]).toMatchObject({
@@ -120,6 +129,7 @@ describe('runPipeline', () => {
       name: 'tool_3',
       input: { value: 'test' }
     })
+    expect(result.content[0]).toHaveProperty('id')
   })
 
   it('Con RitosService con match: el system incluye el bloque [RITO_PATTERN]', async () => {
@@ -146,7 +156,7 @@ describe('runPipeline', () => {
 
     await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }]
-    }, ritos as any, 'test-user')
+    }, ritos as any, 'test-user', 'test-model')
 
     const systemCalls = adapter.complete.mock.calls.filter(call => call[0][0].role === 'system')
     expect(systemCalls.length).toBeGreaterThan(0)
@@ -172,7 +182,7 @@ describe('runPipeline', () => {
       await runPipeline(adapter as any, {
         messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
         tools: TOOLS
-      }, ritos as any, 'test-user')
+      }, ritos as any, 'test-user', 'test-model')
     } catch (_) { }
 
     expect(ritos.saveRito).not.toHaveBeenCalled()

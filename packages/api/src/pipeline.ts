@@ -7,6 +7,7 @@ import type { AnthropicToolSchema } from './types.js'
 import { toInternalTools, backToExternalTools } from './toolMapping.js'
 import { pruneHistory } from './historyPruning.js'
 import { lookupPattern, recordPattern } from './ritosCache.js'
+import { randomUUID } from 'node:crypto'
 
 const logger = createLogger('Pipeline')
 
@@ -17,13 +18,43 @@ export interface MessagesRequest {
   messages: ChatMessage[]
   tools?: AnthropicToolSchema[]
   max_tokens?: number
+  stream?: boolean
 }
 
 export interface MessagesResponse {
+  id: string
+  type: 'message'
+  role: 'assistant'
+  model: string
   content: Array<
     | { type: 'text'; text: string }
-    | { type: 'tool_use'; name: string; input: Record<string, unknown> }
+    | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   >
+  stop_reason: 'end_turn' | 'tool_use' | 'max_tokens'
+  stop_sequence: null
+  usage: { input_tokens: number; output_tokens: number }
+}
+
+function buildResponse(
+  model: string,
+  content: MessagesResponse['content'],
+  stopReason: MessagesResponse['stop_reason']
+): MessagesResponse {
+  const textContent = content.find(c => c.type === 'text')
+  const textLength = textContent?.text?.length ?? 0
+  const inputTokens = 0
+  const outputTokens = Math.round(textLength / 4)
+
+  return {
+    id: `msg_${randomUUID()}`,
+    type: 'message',
+    role: 'assistant',
+    model,
+    content,
+    stop_reason: stopReason,
+    stop_sequence: null,
+    usage: { input_tokens: inputTokens, output_tokens: outputTokens }
+  }
 }
 
 function getLastUserTurn(messages: ChatMessage[]): string {
@@ -39,7 +70,8 @@ export async function runPipeline(
   adapter: ModelAdapter,
   request: MessagesRequest,
   ritos: RitosService,
-  userId: string
+  userId: string,
+  model: string
 ): Promise<MessagesResponse> {
   const startTotal = Date.now()
   const tools = request.tools ?? []
@@ -86,7 +118,7 @@ export async function runPipeline(
     await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed: [] })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
-    return { content: [{ type: 'text', text: response }] }
+    return buildResponse(model, [{ type: 'text', text: response }], 'end_turn')
   }
 
   let filteredTools = tools
@@ -112,7 +144,7 @@ export async function runPipeline(
     await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed: [] })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
-    return { content: [{ type: 'text', text: reasonText }] }
+    return buildResponse(model, [{ type: 'text', text: reasonText }], 'end_turn')
   }
 
   const verifier = new FormVerifier(adapter)
@@ -128,7 +160,7 @@ export async function runPipeline(
     await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
-    return { content: [{ type: 'tool_use', name: serialized.tool, input: serialized.input }] }
+    return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: serialized.tool, input: serialized.input }], 'tool_use')
   }
 
   logger.warn('retry disparado', { reason: verifyResult.reason })
@@ -148,7 +180,7 @@ export async function runPipeline(
     await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed: [] })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
-    return { content: [{ type: 'text', text: retryReasonText }] }
+    return buildResponse(model, [{ type: 'text', text: retryReasonText }], 'end_turn')
   }
 
   const retryProposal = { name: retrySerialized.tool, input: retrySerialized.input }
@@ -164,5 +196,5 @@ export async function runPipeline(
   const guia = retryReasonText.length > 300 ? retryReasonText.slice(0, 300) : retryReasonText
   await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
   logger.info('ritosSave', { saved: true, toolsProposed })
-  return { content: [{ type: 'tool_use', name: retrySerialized.tool, input: retrySerialized.input }] }
+  return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retrySerialized.tool, input: retrySerialized.input }], 'tool_use')
 }
