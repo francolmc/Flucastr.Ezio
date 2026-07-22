@@ -1,0 +1,92 @@
+[
+  {
+    "input": "Buenos días, ¿cómo estás?",
+    "expectedLevel": "simple",
+    "category": "simple-greeting"
+  },
+  {
+    "input": "¿Qué es un closure en JavaScript?",
+    "expectedLevel": "simple",
+    "category": "simple-knowledge"
+  },
+  {
+    "input": "Escribe un haiku sobre la programación",
+    "expectedLevel": "simple",
+    "category": "simple-content-generation"
+  },
+  {
+    "input": "Dame un dato curioso sobre el espacio",
+    "expectedLevel": "simple",
+    "category": "simple-knowledge"
+  },
+  {
+    "input": "Lista los archivos en este directorio",
+    "expectedLevel": "moderate",
+    "category": "moderate-single-tool"
+  },
+  {
+    "input": "Busca el clima actual de Ciudad de México",
+    "expectedLevel": "moderate",
+    "category": "moderate-single-tool"
+  },
+  {
+    "input": "Lee el contenido del archivo README.md",
+    "expectedLevel": "moderate",
+    "category": "moderate-single-tool"
+  },
+  {
+    "input": "¿Cuál es la capital de Australia?",
+    "expectedLevel": "simple",
+    "category": "simple-knowledge"
+  },
+  {
+    "input": "¿Cuánto cuesta un pasaje de avión a Tokio?",
+    "expectedLevel": "moderate",
+    "category": "moderate-single-tool"
+  },
+  {
+    "input": "Revisa mi carpeta y crea un archivo con el resumen de su contenido",
+    "expectedLevel": "complex",
+    "category": "complex-chained-tools"
+  },
+  {
+    "input": "Busca información sobre inteligencia artificial y guárdala en un archivo llamado ai_research.txt",
+    "expectedLevel": "complex",
+    "category": "complex-chained-tools"
+  },
+  {
+    "input": "1. Obtén la lista de procesos 2. Identifica el más reciente 3. Muestra sus detalles",
+    "expectedLevel": "complex",
+    "category": "complex-numbered-steps"
+  },
+  {
+    "input": "Descarga la imagen del logo de Python y múzela a la carpeta images",
+    "expectedLevel": "complex",
+    "category": "complex-chained-tools"
+  },
+  {
+    "input": "Analiza el archivo config.json y si contiene 'debug=true' crea un archivo backup.conf",
+    "expectedLevel": "complex",
+    "category": "complex-conditional"
+  },
+  {
+    "input": "告诉我今天的天气 (Dime el clima de hoy)",
+    "expectedLevel": "moderate",
+    "category": "moderate-single-tool-foreign"
+  },
+  {
+    "input": "Get my recent emails and tell me the sender of the most recent one",
+    "expectedLevel": "complex",
+    "category": "complex-chained-tools-foreign"
+  },
+  {
+    "input": "¿Quién es el CEO actual de Google y en qué año fundó la empresa?",
+    "expectedLevel": "moderate",
+    "category": "moderate-single-tool"
+  },
+  {
+    "input": "Make a list of all files modified today, then zip them into backup.zip",
+    "expectedLevel": "complex",
+    "category": "complex-chained-tools-foreign"
+  }
+]

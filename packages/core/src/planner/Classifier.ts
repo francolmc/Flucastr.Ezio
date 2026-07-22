@@ -30,6 +30,7 @@ ADDITIONAL CRITICAL RULES:
 - GENERATE content AND explicitly ask to save/write/persist it (e.g. "guárdalo", "escríbelo", "créalo como .md") → moderate using write_file
 - Relative date references (today, tomorrow, next week) + current status/schedule/score → needs web_search (moderate/complex)
 - CURRENT officeholder/leader questions (president, CEO, champion) → moderate (needs web_search), never simple. Does NOT apply to historical questions ("first president", "who was").
+- Keep "reason" under 8 words
 
 EXAMPLES:
 "hola" → {"level":"simple","reason":"greeting"}
@@ -50,7 +51,7 @@ JSON response:`
       this.logger.debug('Prompt length:', prompt.length)
       const raw = await this.adapter.complete(
         [{ role: 'system', content: prompt }, { role: 'user', content: message }],
-        { temperature: 0, responseFormat: 'json', maxTokens: 100, think: false }
+        { temperature: 0, responseFormat: 'json', maxTokens: 180, think: false }
       )
       this.logger.debug('Raw response:', raw.slice(0, 200))
 
@@ -70,7 +71,7 @@ Message: ${message.slice(0, 200)}`
 
       const retryRaw = await this.adapter.complete(
         [{ role: 'user', content: retryPrompt }],
-        { temperature: 0, responseFormat: 'json', maxTokens: 100, think: false }
+        { temperature: 0, responseFormat: 'json', maxTokens: 180, think: false }
       )
       this.logger.debug('Retry response:', retryRaw.slice(0, 200))
 
