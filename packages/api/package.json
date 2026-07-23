@@ -11,7 +11,8 @@
     "dev": "tsx src/server.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval:l2": "tsx eval/run-l2.ts"
+    "eval:l2": "tsx eval/run-l2.ts",
+    "eval:l3": "tsx eval/run-l3.ts"
   },
   "dependencies": {
     "@ezio/core": "workspace:*"
