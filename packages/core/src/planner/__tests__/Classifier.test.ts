@@ -201,4 +201,39 @@ describe('Classifier', () => {
     const options = call[1] as Record<string, unknown>
     expect(options.numCtx).toBe(8192)
   })
+
+  it('result includes requires_environment_action=true when adapter returns it', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('{"requires_environment_action":true,"level":"moderate","reason":"web search needed"}')
+    const classifier = new Classifier(fakeAdapter)
+    const result = await classifier.classify('who is the current president of Chile')
+    expect(result.requires_environment_action).toBe(true)
+  })
+
+  it('result includes requires_environment_action=false when adapter returns it', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('{"requires_environment_action":false,"level":"simple","reason":"greeting"}')
+    const classifier = new Classifier(fakeAdapter)
+    const result = await classifier.classify('hello')
+    expect(result.requires_environment_action).toBe(false)
+  })
+
+  it('fallback (parse error) returns requires_environment_action: false', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('not json at all')
+    const classifier = new Classifier(fakeAdapter)
+    const result = await classifier.classify('hello')
+    expect(result.requires_environment_action).toBe(false)
+  })
+
+  it('fallback (invalid level) returns requires_environment_action: false', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('{"level":"ultra","reason":"test"}')
+    const classifier = new Classifier(fakeAdapter)
+    const result = await classifier.classify('hello')
+    expect(result.requires_environment_action).toBe(false)
+  })
+
+  it('fallback (exception) returns requires_environment_action: false', async () => {
+    fakeAdapter.complete = vi.fn().mockRejectedValue(new Error('adapter error'))
+    const classifier = new Classifier(fakeAdapter)
+    const result = await classifier.classify('hello')
+    expect(result.requires_environment_action).toBe(false)
+  })
 })

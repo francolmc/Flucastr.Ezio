@@ -16,9 +16,25 @@ export async function reasonPhase(
   system: string,
   messages: ChatMessage[],
   tools: AnthropicToolSchema[],
-  numCtx?: number
+  numCtx?: number,
+  requiresEnvironmentAction?: boolean
 ): Promise<string> {
   const toolsDescription = buildToolsDescription(tools)
+
+  const actionInstruction = requiresEnvironmentAction === true
+    ? `This task has already been determined to require a real action using one of the available tools above — you MUST propose a tool call, even if you already know the answer from your own training.
+
+Example of the WRONG way to respond:
+User asks: "who is the current president of Chile"
+Wrong response: "The current president of Chile is Gabriel Boric." (this answers from memory, which may be outdated — WRONG)
+
+Example of the CORRECT way to respond:
+User asks: "who is the current president of Chile"
+Correct response: "I will use the web_search tool to search for the current president of Chile, since this is time-sensitive information that may have changed since my training." (this proposes a tool call — CORRECT)
+
+Now, for the actual task above: you MUST explicitly write the exact tool name from the list above (e.g. "I will use the web_search tool to..."). Do not just output a raw answer or explanation without naming which tool executes it.`
+    : `Based on the available tools and conversation, determine the next action. If a tool call is needed, you MUST explicitly write the exact tool name from the list above (e.g. "I will use the bash tool to..."). Do not just output a raw shell command or code snippet without naming which tool executes it. If the user's request has multiple distinct parts, verify each part has already been resolved in the conversation above before answering directly — if any part is still unresolved and a tool above could resolve it, propose that tool call instead of answering. Only answer directly, without a tool, once every part of the user's request has been addressed, or if no available tool can help with what remains.`
+
   const prompt = `${system.trim()}
 
 Available tools:
@@ -27,7 +43,7 @@ ${toolsDescription}
 Previous conversation:
 ${messages.map(m => `${m.role}: ${m.content}`).join('\n')}
 
-Based on the available tools and conversation, determine the next action. If a tool call is needed, you MUST explicitly write the exact tool name from the list above (e.g. "I will use the bash tool to..."). Do not just output a raw shell command or code snippet without naming which tool executes it. If the user's request has multiple distinct parts, verify each part has already been resolved in the conversation above before answering directly — if any part is still unresolved and a tool above could resolve it, propose that tool call instead of answering. Only answer directly, without a tool, once every part of the user's request has been addressed, or if no available tool can help with what remains.`
+${actionInstruction}`
 
   return adapter.complete([
     { role: 'user', content: prompt }

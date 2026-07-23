@@ -132,5 +132,34 @@ describe('reasoning (via serializePhase)', () => {
       const call = mockAdapter.complete.mock.calls[0]
       expect(call[1]).toEqual(expect.objectContaining({ think: false }))
     })
+
+    it('con requiresEnvironmentAction=true, prompt contiene few-shot example y fuerza tool call', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [{ role: 'user' as const, content: 'search for something' }]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, true)
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).toContain('Example of the WRONG way to respond')
+      expect(prompt).toContain('Example of the CORRECT way to respond')
+      expect(prompt).toContain('I will use the web_search tool')
+    })
+
+    it('con requiresEnvironmentAction=false, prompt contiene Only answer directly (comportamiento original)', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [{ role: 'user' as const, content: 'hello' }]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false)
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).toContain('Only answer directly, without a tool')
+    })
+
+    it('sin requiresEnvironmentAction (undefined), prompt contiene Only answer directly (comportamiento original)', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [{ role: 'user' as const, content: 'hello' }]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools)
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).toContain('Only answer directly, without a tool')
+    })
   })
 })

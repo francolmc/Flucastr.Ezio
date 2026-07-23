@@ -4,6 +4,7 @@ import { createLogger } from '../utils/Logger'
 interface ClassificationResult {
   level: 'simple' | 'moderate' | 'complex'
   reason: string
+  requires_environment_action: boolean
 }
 
 interface ParsedClassification extends ClassificationResult {
@@ -108,11 +109,11 @@ Message: ${message.slice(0, 200)}`
       if (retryResult) return this.applyAutoCorrection(retryResult)
 
       this.logger.warn('Both attempts failed, defaulting to simple')
-      return { level: 'simple', reason: 'parse error, defaulting to simple' }
+      return { level: 'simple', reason: 'parse error, defaulting to simple', requires_environment_action: false }
 
     } catch (e) {
       this.logger.warn('Classification error:', e instanceof Error ? e.message : String(e))
-      return { level: 'simple', reason: 'error, defaulting to simple' }
+      return { level: 'simple', reason: 'error, defaulting to simple', requires_environment_action: false }
     }
   }
 
@@ -144,8 +145,8 @@ Message: ${message.slice(0, 200)}`
   private applyAutoCorrection(parsed: ParsedClassification): ClassificationResult {
     if (parsed.requires_environment_action === true && parsed.level === 'simple') {
       this.logger.debug('Auto-correcting: requires_environment_action=true but level=simple, forcing level to moderate')
-      return { level: 'moderate', reason: parsed.reason }
+      return { level: 'moderate', reason: parsed.reason, requires_environment_action: parsed.requires_environment_action }
     }
-    return { level: parsed.level, reason: parsed.reason }
+    return { level: parsed.level, reason: parsed.reason, requires_environment_action: parsed.requires_environment_action }
   }
 }

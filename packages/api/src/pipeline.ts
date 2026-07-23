@@ -131,7 +131,7 @@ export async function runPipeline(
   }
 
   const t0Reason = Date.now()
-  const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, filteredTools, DEFAULT_NUM_CTX)
+  const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, filteredTools, DEFAULT_NUM_CTX, classification.requires_environment_action)
   logger.info('reasonPhase', { ms: Date.now() - t0Reason, preview: reasonText.slice(0, 100) })
 
   const t0Serialize = Date.now()
@@ -187,7 +187,8 @@ Expand this exact content with more detail, explanation, and examples until it r
       `${effectiveSystem}\n\n${retrySystemSupplement}`,
       pruneResult.messages,
       filteredTools,
-      DEFAULT_NUM_CTX
+      DEFAULT_NUM_CTX,
+      classification.requires_environment_action
     )
 
     const retryProposal = {
@@ -216,7 +217,8 @@ Expand this exact content with more detail, explanation, and examples until it r
     `${effectiveSystem}\n\n${retrySystemSupplement}`,
     pruneResult.messages,
     filteredTools,
-    DEFAULT_NUM_CTX
+    DEFAULT_NUM_CTX,
+    classification.requires_environment_action
   )
 
   const retrySerialized = await serializePhase(adapter, retryReasonText, filteredTools, DEFAULT_NUM_CTX)
