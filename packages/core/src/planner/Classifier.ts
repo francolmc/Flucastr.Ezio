@@ -64,6 +64,7 @@ EXAMPLES:
 "hola" → {"requires_environment_action":false,"level":"simple","reason":"greeting"}
 "genera un poema sobre el mar" → {"requires_environment_action":false,"level":"simple","reason":"content generation only, no persistence requested"}
 "genera un diagrama y guárdalo en un .md" → {"requires_environment_action":true,"level":"moderate","reason":"generation with persistence requested"}
+"CONTEXT: Ezio: [tool_use: write {"path":"proyecto.txt","content":"Proyecto Atacama"}]\nUSER MESSAGE: agrégale la descripción: 'Sistema de gestión de energía solar'" → {"requires_environment_action":true,"level":"moderate","reason":"edits previously created file, needs write/edit"}
 "busca el clima" → {"requires_environment_action":true,"level":"moderate","reason":"one web_search call"}
 "¿Quién es el actual presidente de Chile?" → {"requires_environment_action":true,"level":"moderate","reason":"current officeholder needs web_search"}
 "1. lista archivos 2. guárdalos 3. crea carpeta" → {"requires_environment_action":true,"level":"complex","reason":"numbered sequence of 3 steps"}
@@ -71,8 +72,8 @@ EXAMPLES:
 "¿quién fue el primer presidente de Chile?" → {"requires_environment_action":false,"level":"simple","reason":"historical question, no current holder involved"}
 "lista los archivos en este directorio" → {"requires_environment_action":true,"level":"moderate","reason":"lists files, one tool call"}
 
-${dateContext ? `${dateContext}\n` : ''}USER MESSAGE: ${message.slice(0, 300)}
-${sessionContext ? `CONTEXT: ${sessionContext.slice(0, 200)}` : ''}
+ ${dateContext ? `${dateContext}\n` : ''}USER MESSAGE: ${message.slice(0, 300)}
+ ${sessionContext ? `CONTEXT: ${sessionContext.slice(0, 500)}` : ''}
 
 JSON response:`
 

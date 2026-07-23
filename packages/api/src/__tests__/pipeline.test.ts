@@ -231,4 +231,29 @@ describe('runPipeline', () => {
     })
     expect(result.content[0]).toHaveProperty('id')
   })
+
+  it('regression: classifier.classify receives non-undefined sessionContext when prior messages exist', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"continues file editing"}')
+      .mockResolvedValueOnce('I should use write to add description.')
+      .mockResolvedValueOnce('{"tool":"write","input":{"path":"proyecto.txt","content":"Proyecto Atacama\nSistema de gestión de energía solar"}}')
+      .mockResolvedValueOnce('YES')
+
+    const priorMessages = [
+      { role: 'user', content: "Crea un archivo proyecto.txt con el texto 'Proyecto Atacama'" },
+      { role: 'assistant', content: 'I will use write to create the file.' },
+      { role: 'user', content: "Ahora agrégale la descripción: 'Sistema de gestión de energía solar'" }
+    ]
+
+    await runPipeline(adapter as any, {
+      messages: priorMessages,
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', "Ahora agrégale la descripción: 'Sistema de gestión de energía solar'")
+
+    const classifyCall = adapter.complete.mock.calls[0]
+    const classifyOptions = classifyCall[1] as Record<string, unknown>
+    expect(classifyOptions).toBeDefined()
+  })
 })

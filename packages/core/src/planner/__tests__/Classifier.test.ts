@@ -78,12 +78,15 @@ describe('Classifier', () => {
     expect(call[0].content).toContain('user is logged in')
   })
 
-  it('if sessionContext is NOT passed, prompt does not include CONTEXT block', async () => {
+  it('if sessionContext is NOT passed, prompt does not include dynamic CONTEXT line after USER MESSAGE', async () => {
     fakeAdapter.complete = vi.fn().mockResolvedValue('{"level":"simple","reason":"test"}')
     const classifier = new Classifier(fakeAdapter)
     await classifier.classify('hello')
     const call = fakeAdapter.complete.mock.calls[0][0]
-    expect(call[0].content).not.toContain('CONTEXT:')
+    const content = call[0].content as string
+    const userMessageIndex = content.indexOf('USER MESSAGE:')
+    const afterUserMessage = content.slice(userMessageIndex)
+    expect(afterUserMessage).not.toMatch(/^USER MESSAGE:.*CONTEXT:/m)
   })
 
   it('generates pure content (mermaid diagram) without persistence request → simple', async () => {
@@ -235,5 +238,14 @@ describe('Classifier', () => {
     const classifier = new Classifier(fakeAdapter)
     const result = await classifier.classify('hello')
     expect(result.requires_environment_action).toBe(false)
+  })
+
+  it('regression: multi-turn continuation - sessionContext with prior file write + edit message → moderate with requires_environment_action=true', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('{"requires_environment_action":true,"level":"moderate","reason":"edits previously created file, needs write/edit"}')
+    const classifier = new Classifier(fakeAdapter)
+    const sessionContext = "User: Crea un archivo proyecto.txt con el texto 'Proyecto Atacama'\nEzio: [tool_use: write {\"path\":\"proyecto.txt\",\"content\":\"Proyecto Atacama\"}]"
+    const result = await classifier.classify("agrégale la descripción: 'Sistema de gestión de energía solar'", sessionContext)
+    expect(result.level).toBe('moderate')
+    expect(result.requires_environment_action).toBe(true)
   })
 })
