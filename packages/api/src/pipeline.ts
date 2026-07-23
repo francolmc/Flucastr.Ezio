@@ -107,7 +107,7 @@ export async function runPipeline(
     const response = await adapter.complete([
       { role: 'system', content: effectiveSystem },
       ...pruneResult.messages
-    ], { temperature: 0.7, maxTokens: request.max_tokens, numCtx: DEFAULT_NUM_CTX })
+    ], { temperature: 0.7, maxTokens: request.max_tokens, numCtx: DEFAULT_NUM_CTX, think: false })
     logger.info('camino simple, respuesta directa', { ms: Date.now() - t0 })
     const resultSummary = response.length > 150 ? response.slice(0, 150) : response
     const guia = 'Respuesta directa sin tool, clasificación simple'

@@ -31,7 +31,7 @@ Based on the available tools and conversation, determine the next action. If a t
 
   return adapter.complete([
     { role: 'user', content: prompt }
-  ], { temperature: 0, numCtx })
+  ], { temperature: 0, numCtx, think: false })
 }
 
 function parseJson(response: string): { tool: string; input: Record<string, unknown> } | null {
@@ -122,7 +122,7 @@ JSON response:`
 
   const response = await adapter.complete([
     { role: 'user', content: prompt }
-  ], { temperature: 0, numCtx })
+  ], { temperature: 0, numCtx, think: false })
 
   if (response.trim() === 'NO_TOOL') {
     return null

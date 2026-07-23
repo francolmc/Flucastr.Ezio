@@ -95,6 +95,13 @@ describe('reasoning (via serializePhase)', () => {
       const result = await serializePhase(mockAdapter, 'search for test', mockTools)
       expect(result).toEqual({ tool: 'web_search', input: { query: 'test' } })
     })
+
+    it('llama adapter.complete con think: false', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      await serializePhase(mockAdapter, 'reasoning text', mockTools)
+      const call = mockAdapter.complete.mock.calls[0]
+      expect(call[1]).toEqual(expect.objectContaining({ think: false }))
+    })
   })
 
   describe('reasonPhase', () => {
@@ -117,6 +124,13 @@ describe('reasoning (via serializePhase)', () => {
       await reasonPhase(mockAdapter, 'You are helpful', [], mockTools, 4096)
       const call = mockAdapter.complete.mock.calls[0]
       expect(call[1]).toEqual(expect.objectContaining({ numCtx: 4096 }))
+    })
+
+    it('llama adapter.complete con think: false', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      await reasonPhase(mockAdapter, 'You are helpful', [], mockTools)
+      const call = mockAdapter.complete.mock.calls[0]
+      expect(call[1]).toEqual(expect.objectContaining({ think: false }))
     })
   })
 })

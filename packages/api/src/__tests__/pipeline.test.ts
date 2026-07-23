@@ -81,6 +81,9 @@ describe('runPipeline', () => {
     expect(result.stop_reason).toBe('end_turn')
     expect(result.stop_sequence).toBe(null)
     expect(result.usage).toEqual({ input_tokens: 0, output_tokens: expect.any(Number) })
+
+    const simplePathCall = adapter.complete.mock.calls[1]
+    expect(simplePathCall[1]).toEqual(expect.objectContaining({ think: false }))
   })
 
   it('Caso B: returns tool_use when FormVerifier approves', async () => {
