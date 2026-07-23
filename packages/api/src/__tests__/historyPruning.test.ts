@@ -127,4 +127,41 @@ describe('pruneHistory', () => {
     expect(result.summary).toContain('Completed:')
     expect(result.summary).toContain('- action 1')
   })
+
+  it('when numCtx is provided in options, it is passed to adapter.complete', async () => {
+    const adapter = mockAdapter()
+    adapter.complete.mockResolvedValueOnce(JSON.stringify({
+      user_goal: 'goal',
+      completed: [],
+      established_facts: [],
+      pending: '',
+      last_tool_results: {}
+    }))
+    const messages = makeMessages(10)
+
+    await pruneHistory(adapter as any, messages, { numCtx: 8192 })
+
+    expect(adapter.complete).toHaveBeenCalledTimes(1)
+    const completeCall = adapter.complete.mock.calls[0]
+    const options = completeCall[1] as { numCtx?: number }
+    expect(options.numCtx).toBe(8192)
+  })
+
+  it('adapter.complete receives numCtx from options even when other options are set', async () => {
+    const adapter = mockAdapter()
+    adapter.complete.mockResolvedValueOnce(JSON.stringify({
+      user_goal: 'goal',
+      completed: [],
+      established_facts: [],
+      pending: '',
+      last_tool_results: {}
+    }))
+    const messages = makeMessages(12)
+
+    await pruneHistory(adapter as any, messages, { pruneThreshold: 10, keepLastTurns: 2, numCtx: 4096 })
+
+    const completeCall = adapter.complete.mock.calls[0]
+    const options = completeCall[1] as { numCtx?: number }
+    expect(options.numCtx).toBe(4096)
+  })
 })

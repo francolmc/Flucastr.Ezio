@@ -75,7 +75,7 @@ export async function runPipeline(
   const system = request.system ?? 'You are a helpful assistant.'
 
   const t0Prune = Date.now()
-  const pruneResult = await pruneHistory(adapter, request.messages)
+  const pruneResult = await pruneHistory(adapter, request.messages, { numCtx: DEFAULT_NUM_CTX })
   const lookup = lookupPattern(ritos, userId, lastUserTurn)
   let effectiveSystem = pruneResult.summary
     ? `${system}\n\n${pruneResult.summary}`
@@ -93,11 +93,16 @@ export async function runPipeline(
 
   logger.info('request recibida', { messageCount: request.messages.length, toolCount: tools.length })
 
+  const conversationHistory = pruneResult.messages
+    .map(m => `${m.role === 'user' ? 'User' : 'Ezio'}: ${m.content}`)
+    .join('\n')
+    .slice(-2000)
+
   const classifier = new Classifier(adapter)
   const t0 = Date.now()
   const classification = await classifier.classify(
     lastUserTurn,
-    undefined,
+    conversationHistory,
     getCurrentDateContext(),
     DEFAULT_NUM_CTX
   )
@@ -149,10 +154,6 @@ export async function runPipeline(
 
   const verifier = new FormVerifier(adapter)
   const proposal = { name: serialized.tool, input: serialized.input }
-  const conversationHistory = pruneResult.messages
-    .map(m => `${m.role === 'user' ? 'User' : 'Ezio'}: ${m.content}`)
-    .join('\n')
-    .slice(-2000)
   const t0Verify = Date.now()
   const verifyResult = await verifier.verify(proposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
   logger.info('formVerifier', { ms: Date.now() - t0Verify, approved: verifyResult.approved, costLLM: verifyResult.costLLM, reason: verifyResult.reason })

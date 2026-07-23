@@ -11,6 +11,7 @@ export interface PruneResult {
 export interface PruneOptions {
   pruneThreshold?: number
   keepLastTurns?: number
+  numCtx?: number
 }
 
 async function buildCompressionPrompt(olderMessages: ChatMessage[]): Promise<string> {
@@ -24,7 +25,7 @@ Mark anything uncertain as UNVERIFIED.
 Do not invent actions or results.
 
 CONVERSATION:
-${historyText.slice(0, 4000)}
+${historyText.slice(0, 12000)}
 
 Respond ONLY with valid JSON matching this exact schema:
 {
@@ -32,7 +33,7 @@ Respond ONLY with valid JSON matching this exact schema:
   "completed": ["action 1 completed", "action 2 completed"],
   "established_facts": ["key fact 1", "key fact 2"],
   "pending": "what remains unresolved, or empty string if done",
-  "last_tool_results": {"tool_name": "one-line result summary"}`
+  "last_tool_results": {"tool_name": "the exact literal value or verbatim excerpt returned by the tool — do NOT paraphrase or summarize this, copy it as-is since a later step may need the precise value (e.g. a number, a name, a file's exact content)"}}`
 }
 
 interface ConversationStateSnapshot {
@@ -84,7 +85,7 @@ export async function pruneHistory(
   const prompt = await buildCompressionPrompt(olderMessages)
 
   try {
-    const raw = await adapter.complete([{ role: 'user', content: prompt }], { temperature: 0, responseFormat: 'json', think: false, maxTokens: 300 })
+    const raw = await adapter.complete([{ role: 'user', content: prompt }], { temperature: 0, responseFormat: 'json', think: false, maxTokens: 700, numCtx: options?.numCtx })
 
     const match = raw.match(/\{[\s\S]*\}/)
     if (!match) {
