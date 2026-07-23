@@ -59,18 +59,10 @@ export function loadApiConfig(): ApiConfig {
     }
   }
 
-  if (config.model.provider === 'ollama') {
-    if (!config.model.baseUrl) {
-      throw new Error(
-        `Provider 'ollama' requiere 'model.baseUrl' en ${filePath} (ej: "http://localhost:11434")`
-      )
-    }
-  } else {
-    if (!config.model.apiKey) {
-      throw new Error(
-        `Provider '${config.model.provider}' (cloud) requiere 'model.apiKey' en ${filePath}`
-      )
-    }
+  if (config.model.provider !== 'ollama' && !config.model.apiKey) {
+    throw new Error(
+      `Provider '${config.model.provider}' (cloud) requiere 'model.apiKey' en ${filePath}`
+    )
   }
 
   return config

@@ -64,4 +64,34 @@ describe('OllamaAdapter', () => {
       })
     }))
   })
+
+  it('complete() with options.think = false includes "think": false in body', async () => {
+    const adapter = new OllamaAdapter({ baseUrl: 'http://localhost:11434', model: 'llama2' })
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ message: { content: 'response' } })
+    }) as unknown as typeof fetch
+    globalThis.fetch = mockFetch
+
+    await adapter.complete([{ role: 'user', content: 'Hi' }], { think: false })
+
+    const call = mockFetch.mock.calls[0]
+    const body = JSON.parse(call[1].body)
+    expect(body).toHaveProperty('think', false)
+  })
+
+  it('complete() with options.think undefined does NOT include "think" key in body', async () => {
+    const adapter = new OllamaAdapter({ baseUrl: 'http://localhost:11434', model: 'llama2' })
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ message: { content: 'response' } })
+    }) as unknown as typeof fetch
+    globalThis.fetch = mockFetch
+
+    await adapter.complete([{ role: 'user', content: 'Hi' }], { think: undefined })
+
+    const call = mockFetch.mock.calls[0]
+    const body = JSON.parse(call[1].body)
+    expect(body).not.toHaveProperty('think')
+  })
 })

@@ -181,4 +181,15 @@ describe('Classifier', () => {
     const result = await classifier.classify('lista mis archivos')
     expect(result.level).toBe('moderate')
   })
+
+  it('adapter.complete is called with options.think === false and options.responseFormat defined', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('{"requires_environment_action":false,"level":"simple","reason":"test"}')
+    const classifier = new Classifier(fakeAdapter)
+    await classifier.classify('hello')
+    const call = fakeAdapter.complete.mock.calls[0]
+    const options = call[1] as Record<string, unknown>
+    expect(options.think).toBe(false)
+    expect(options.responseFormat).toBeDefined()
+    expect(options.responseFormat).not.toBeUndefined()
+  })
 })

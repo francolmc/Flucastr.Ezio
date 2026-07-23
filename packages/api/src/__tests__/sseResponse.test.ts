@@ -91,6 +91,7 @@ describe('sendSSEResponse', () => {
     const contentBlockStart = events.find((e: any) => e.type === 'data' && e.content.type === 'content_block_start')
     expect(contentBlockStart?.content.content_block.type).toBe('tool_use')
     expect(contentBlockStart?.content.content_block.name).toBe('web_search')
+    expect(contentBlockStart?.content.content_block.input).toEqual({})
 
     const contentBlockDelta = events.find((e: any) => e.type === 'data' && e.content.type === 'content_block_delta')
     expect(contentBlockDelta?.content.delta.type).toBe('input_json_delta')
