@@ -1,5 +1,9 @@
 import type { ModelAdapter, ChatMessage } from '@ezio/core'
 import type { AnthropicToolSchema } from './types.js'
+import { extractCompletedSteps, formatPlanState } from './planState.js'
+import { createLogger } from '@ezio/core'
+
+const logger = createLogger('reasoning')
 
 function buildToolsDescription(tools: AnthropicToolSchema[]): string {
   return tools.map(t => {
@@ -21,6 +25,9 @@ export async function reasonPhase(
 ): Promise<string> {
   const toolsDescription = buildToolsDescription(tools)
 
+  const planState = formatPlanState(extractCompletedSteps(messages))
+  const planStateBlock = planState ? `${planState}\n\n` : ''
+
   const actionInstruction = requiresEnvironmentAction === true
     ? `This task has already been determined to require a real action using one of the available tools above — you MUST propose a tool call, even if you already know the answer from your own training.
 
@@ -32,15 +39,17 @@ Example of the CORRECT way to respond:
 User asks: "who is the current president of Chile"
 Correct response: "I will use the web_search tool to search for the current president of Chile, since this is time-sensitive information that may have changed since my training." (this proposes a tool call — CORRECT)
 
+If [PLAN_STATE] is present above, check it first: if a step there already produced the information you need (e.g. a completed web_search with a literal result), use that literal result to finish the task now — do NOT call the same tool again to re-fetch information you already have. Only call a tool again if [PLAN_STATE] shows the specific action you now need is genuinely still missing.
+
 Now, for the actual task above: you MUST explicitly write the exact tool name from the list above (e.g. "I will use the web_search tool to..."). Do not just output a raw answer or explanation without naming which tool executes it.`
-    : `Based on the available tools and conversation, determine the next action. If a tool call is needed, you MUST explicitly write the exact tool name from the list above (e.g. "I will use the bash tool to..."). Do not just output a raw shell command or code snippet without naming which tool executes it. If the user's request has multiple distinct parts, verify each part has already been resolved in the conversation above before answering directly — if any part is still unresolved and a tool above could resolve it, propose that tool call instead of answering. Only answer directly, without a tool, once every part of the user's request has been addressed, or if no available tool can help with what remains.`
+    : `Based on the available tools and conversation, determine the next action. If [PLAN_STATE] is present above, it lists every tool call already executed, in order, with literal results — treat that list as ground truth about progress so far, and never propose a call that already appears there. If a tool call is needed for the step that is genuinely still missing, you MUST explicitly write the exact tool name from the list above (e.g. "I will use the bash tool to..."). Do not just output a raw shell command or code snippet without naming which tool executes it. If the user's request has multiple distinct parts, verify each part has already been resolved — per [PLAN_STATE] if present, otherwise from the conversation above — before answering directly; if any part is still unresolved and a tool above could resolve it, propose that tool call instead of answering. Only answer directly, without a tool, once every part of the user's request has been addressed, or if no available tool can help with what remains.`
 
   const prompt = `${system.trim()}
 
 Available tools:
 ${toolsDescription}
 
-Previous conversation:
+${planStateBlock}Previous conversation:
 ${messages.map(m => `${m.role}: ${m.content}`).join('\n')}
 
 ${actionInstruction}`
@@ -140,9 +149,18 @@ JSON response:`
     { role: 'user', content: prompt }
   ], { temperature: 0, numCtx, think: false })
 
+  logger.debug('serializePhase raw response', {
+    reasonTextPreview: reasonText.slice(0, 300),
+    serializeResponsePreview: response.slice(0, 300)
+  })
+
   if (response.trim() === 'NO_TOOL') {
     return null
   }
 
-  return parseJson(response)
+  const parsed = parseJson(response)
+  if (parsed === null) {
+    logger.debug('serializePhase parse failed', { rawResponse: response })
+  }
+  return parsed
 }
