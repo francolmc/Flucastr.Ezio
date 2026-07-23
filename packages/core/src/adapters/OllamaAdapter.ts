@@ -1,4 +1,5 @@
 import type { ChatMessage, ModelAdapter, CompletionOptions } from './ModelAdapter'
+import { createLogger } from '../utils/Logger'
 
 export interface OllamaConfig {
   baseUrl: string
@@ -35,11 +36,29 @@ export class OllamaAdapter implements ModelAdapter {
       throw new Error(`Ollama API error: ${response.status} - ${body}`)
     }
 
-    const data = await response.json() as { message?: { content?: string } }
+    const data = await response.json() as {
+      message?: { content?: string },
+      total_duration?: number,
+      load_duration?: number,
+      prompt_eval_count?: number,
+      prompt_eval_duration?: number,
+      eval_count?: number,
+      eval_duration?: number
+    }
 
     if (!data.message?.content) {
       throw new Error('Ollama API response missing message.content field')
     }
+
+    const logger = createLogger('OllamaAdapter')
+    logger.debug('ollama timing', {
+      total_ms: data.total_duration ? Math.round(data.total_duration / 1e6) : undefined,
+      load_ms: data.load_duration ? Math.round(data.load_duration / 1e6) : undefined,
+      promptEval_ms: data.prompt_eval_duration ? Math.round(data.prompt_eval_duration / 1e6) : undefined,
+      promptEvalCount: data.prompt_eval_count,
+      eval_ms: data.eval_duration ? Math.round(data.eval_duration / 1e6) : undefined,
+      evalCount: data.eval_count
+    })
 
     return data.message.content
   }
