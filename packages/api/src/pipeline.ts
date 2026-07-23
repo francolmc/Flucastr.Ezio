@@ -1,6 +1,6 @@
 import type { ModelAdapter, ChatMessage, RitosService } from '@ezio/core'
 import { Classifier, getCurrentDateContext, createLogger } from '@ezio/core'
-import { ToolRetriever } from '@ezio/core'
+import { BM25ToolSelector } from '@ezio/core'
 import { FormVerifier } from './FormVerifier.js'
 import { reasonPhase, serializePhase } from './reasoning.js'
 import type { AnthropicToolSchema } from './types.js'
@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto'
 
 const logger = createLogger('Pipeline')
 
-const TOOL_TOKEN_THRESHOLD = 2000
+const TOOL_TOKEN_THRESHOLD = 4000
 const DEFAULT_NUM_CTX = 8192
 
 function estimateTokens(text: string): number {
@@ -62,21 +62,13 @@ function buildResponse(
   }
 }
 
-function getLastUserTurn(messages: ChatMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'user') {
-      return messages[i].content
-    }
-  }
-  return ''
-}
-
 export async function runPipeline(
   adapter: ModelAdapter,
   request: MessagesRequest,
   ritos: RitosService,
   userId: string,
-  model: string
+  model: string,
+  lastUserTurn: string
 ): Promise<MessagesResponse> {
   const startTotal = Date.now()
   const tools = request.tools ?? []
@@ -84,7 +76,6 @@ export async function runPipeline(
 
   const t0Prune = Date.now()
   const pruneResult = await pruneHistory(adapter, request.messages)
-  const lastUserTurn = getLastUserTurn(pruneResult.messages)
   const lookup = lookupPattern(ritos, userId, lastUserTurn)
   let effectiveSystem = pruneResult.summary
     ? `${system}\n\n${pruneResult.summary}`
@@ -127,13 +118,13 @@ export async function runPipeline(
   }
 
   let filteredTools = tools
-  const toolsJson = JSON.stringify(request.tools)
+  const toolsJson = JSON.stringify(tools)
   const toolsTokenEstimate = estimateTokens(toolsJson)
   if (request.tools && toolsTokenEstimate > TOOL_TOKEN_THRESHOLD) {
     logger.debug('tool filtering triggered', { toolCount: request.tools.length, tokenEstimate: toolsTokenEstimate })
     const internalTools = toInternalTools(request.tools)
-    const retriever = new ToolRetriever(adapter, internalTools)
-    const selected = await retriever.retrieve(lastUserTurn, 5)
+    const selector = new BM25ToolSelector()
+    const selected = selector.select(lastUserTurn, internalTools, 5)
     filteredTools = backToExternalTools(selected, request.tools)
     logger.info('tool filtering applied', { toolsIn: request.tools.length, toolsOut: filteredTools.length, selected: filteredTools.map(t => t.name) })
   }
@@ -157,9 +148,13 @@ export async function runPipeline(
 
   const verifier = new FormVerifier(adapter)
   const proposal = { name: serialized.tool, input: serialized.input }
+  const conversationHistory = pruneResult.messages
+    .map(m => `${m.role === 'user' ? 'User' : 'Ezio'}: ${m.content}`)
+    .join('\n')
+    .slice(-2000)
   const t0Verify = Date.now()
-  const verifyResult = await verifier.verify(proposal, filteredTools, lastUserTurn)
-  logger.info('formVerifier', { ms: Date.now() - t0Verify, approved: verifyResult.approved, costLLM: verifyResult.costLLM })
+  const verifyResult = await verifier.verify(proposal, filteredTools, lastUserTurn, conversationHistory)
+  logger.info('formVerifier', { ms: Date.now() - t0Verify, approved: verifyResult.approved, costLLM: verifyResult.costLLM, reason: verifyResult.reason })
 
   if (verifyResult.approved) {
     const toolsProposed = [proposal.name]
@@ -173,9 +168,51 @@ export async function runPipeline(
 
   logger.warn('retry disparado', { reason: verifyResult.reason })
 
+  if (verifyResult.failureType === 'quantity' && verifyResult.quantityDetails?.textFieldKey) {
+    const fieldKey = verifyResult.quantityDetails.textFieldKey
+    const rejectedContent = typeof proposal.input[fieldKey] === 'string' ? proposal.input[fieldKey] as string : ''
+
+    const retrySystemSupplement = `Previous verification failed: your last response had ${verifyResult.quantityDetails.actualWords} words, but at least ${verifyResult.quantityDetails.requiredWords} words are required.
+
+Here is the content you previously wrote:
+"""
+${rejectedContent}
+"""
+
+Expand this exact content with more detail, explanation, and examples until it reaches the minimum word count. Do not summarize or shorten it, and do not start over from scratch. Respond with ONLY the expanded content itself — no preamble, no explanation, no tool names.`
+
+    const expandedContent = await reasonPhase(
+      adapter,
+      `${effectiveSystem}\n\n${retrySystemSupplement}`,
+      pruneResult.messages,
+      filteredTools,
+      DEFAULT_NUM_CTX
+    )
+
+    const retryProposal = {
+      name: proposal.name,
+      input: { ...proposal.input, [fieldKey]: expandedContent.trim() }
+    }
+    const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory)
+
+    if (!retryVerify.approved) {
+      throw new Error(`Verification rejected after retry: ${retryVerify.reason}`)
+    }
+
+    logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
+    const toolsProposed = [retryProposal.name]
+    const resultSummary = `Propuso ${retryProposal.name} con input ${JSON.stringify(retryProposal.input)}`
+    const guia = expandedContent.length > 300 ? expandedContent.slice(0, 300) : expandedContent
+    await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
+    logger.info('ritosSave', { saved: true, toolsProposed })
+    return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retryProposal.name, input: retryProposal.input }], 'tool_use')
+  }
+
+  const retrySystemSupplement = `Previous verification failed: ${verifyResult.reason}\n\nRevise your reasoning.`
+
   const retryReasonText = await reasonPhase(
     adapter,
-    `${effectiveSystem}\n\nPrevious verification failed: ${verifyResult.reason}\n\nRevise your reasoning.`,
+    `${effectiveSystem}\n\n${retrySystemSupplement}`,
     pruneResult.messages,
     filteredTools,
     DEFAULT_NUM_CTX
@@ -193,7 +230,7 @@ export async function runPipeline(
   }
 
   const retryProposal = { name: retrySerialized.tool, input: retrySerialized.input }
-  const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn)
+  const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory)
 
   if (!retryVerify.approved) {
     throw new Error(`Verification rejected after retry: ${retryVerify.reason}`)

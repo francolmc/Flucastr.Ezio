@@ -70,7 +70,7 @@ describe('runPipeline', () => {
 
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'hola, como estas' }]
-    }, ritos as any, 'test-user', 'test-model')
+    }, ritos as any, 'test-user', 'test-model', 'hola, como estas')
 
     expect(result.content).toHaveLength(1)
     expect(result.content[0]).toMatchObject({ type: 'text', text: 'Hola! Como estas?' })
@@ -95,7 +95,7 @@ describe('runPipeline', () => {
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
       tools: TOOLS
-    }, ritos as any, 'test-user', 'test-model')
+    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
 
     expect(result.content).toHaveLength(1)
     expect(result.content[0]).toMatchObject({
@@ -122,17 +122,16 @@ describe('runPipeline', () => {
     await expect(runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
       tools: TOOLS
-    }, ritos as any, 'test-user', 'test-model')).rejects.toThrow('Verification rejected after retry')
+    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')).rejects.toThrow('Verification rejected after retry')
 
     expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 
-  it('Caso D: with more tools than threshold, tool retriever filters and result respects maxTools', async () => {
+  it('Caso D: with more tools than threshold, BM25 filters and result respects maxTools', async () => {
     const adapter = mockAdapter()
     const ritos = mockRitos()
     adapter.complete
       .mockResolvedValueOnce('{"level":"moderate","reason":"use a tool"}')
-      .mockResolvedValueOnce('tool_3')
       .mockResolvedValueOnce('I should use tool_3.')
       .mockResolvedValueOnce('{"tool":"tool_3","input":{"value":"test"}}')
       .mockResolvedValueOnce('YES')
@@ -140,7 +139,7 @@ describe('runPipeline', () => {
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'do something with tool_3' }],
       tools: MANY_TOOLS
-    }, ritos as any, 'test-user', 'test-model')
+    }, ritos as any, 'test-user', 'test-model', 'do something with tool_3')
 
     expect(result.content).toHaveLength(1)
     expect(result.content[0]).toMatchObject({
@@ -175,7 +174,7 @@ describe('runPipeline', () => {
 
     await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }]
-    }, ritos as any, 'test-user', 'test-model')
+    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
 
     const systemCalls = adapter.complete.mock.calls.filter(call => call[0][0].role === 'system')
     expect(systemCalls.length).toBeGreaterThan(0)
@@ -201,18 +200,17 @@ describe('runPipeline', () => {
       await runPipeline(adapter as any, {
         messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
         tools: TOOLS
-      }, ritos as any, 'test-user', 'test-model')
+      }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
     } catch (_) { }
 
     expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 
-  it('Token-based threshold: with 3 large tools (>2000 tokens estimated), filtering is triggered even though count < 12', async () => {
+  it('Token-based threshold: with 3 large tools (>4000 tokens estimated), filtering is triggered even though count < 12', async () => {
     const adapter = mockAdapter()
     const ritos = mockRitos()
     adapter.complete
       .mockResolvedValueOnce('{"level":"moderate","reason":"use a tool"}')
-      .mockResolvedValueOnce('tool_b')
       .mockResolvedValueOnce('I should use tool_b.')
       .mockResolvedValueOnce('{"tool":"tool_b","input":{"value":"test"}}')
       .mockResolvedValueOnce('YES')
@@ -220,7 +218,7 @@ describe('runPipeline', () => {
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'use tool_b' }],
       tools: BIG_TOOLS
-    }, ritos as any, 'test-user', 'test-model')
+    }, ritos as any, 'test-user', 'test-model', 'use tool_b')
 
     expect(result.content).toHaveLength(1)
     expect(result.content[0]).toMatchObject({

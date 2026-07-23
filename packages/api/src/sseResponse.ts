@@ -36,7 +36,7 @@ export function sendSSEResponse(res: ServerResponse, response: MessagesResponse)
         type: 'tool_use',
         id: toolBlock.id,
         name: toolBlock.name,
-        input: toolBlock.input
+        input: {}
       }
     }
     writeEvent(res, 'content_block_start', contentBlockStartData)

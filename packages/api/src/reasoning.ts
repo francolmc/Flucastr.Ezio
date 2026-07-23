@@ -27,7 +27,7 @@ ${toolsDescription}
 Previous conversation:
 ${messages.map(m => `${m.role}: ${m.content}`).join('\n')}
 
-Based on the available tools and conversation, determine the next action. If a tool call is needed, name the tool and explain why. If the user's last message can be answered directly without any tool, do so.`
+Based on the available tools and conversation, determine the next action. If a tool call is needed, you MUST explicitly write the exact tool name from the list above (e.g. "I will use the bash tool to..."). Do not just output a raw shell command or code snippet without naming which tool executes it. If the user's request has multiple distinct parts, verify each part has already been resolved in the conversation above before answering directly — if any part is still unresolved and a tool above could resolve it, propose that tool call instead of answering. Only answer directly, without a tool, once every part of the user's request has been addressed, or if no available tool can help with what remains.`
 
   return adapter.complete([
     { role: 'user', content: prompt }
@@ -107,10 +107,6 @@ export async function serializePhase(
   tools: AnthropicToolSchema[],
   numCtx?: number
 ): Promise<{ tool: string; input: Record<string, unknown> } | null> {
-  if (!suggestsToolCall(reasonText, tools)) {
-    return null
-  }
-
   const toolsDescription = buildToolsDescription(tools)
   const prompt = `You have the following reasoning about what action to take:
 

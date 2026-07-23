@@ -20,7 +20,11 @@ const makeTool = (name: string, required: string[] = [], properties: Record<stri
 const TOOLS: AnthropicToolSchema[] = [
   makeTool('sendMessage', ['message']),
   makeTool('setStatus', ['active'], { active: { type: 'boolean' } }),
-  makeTool('notify', ['message', 'count'], { message: { type: 'string' }, count: { type: 'number' } })
+  makeTool('notify', ['message', 'count'], { message: { type: 'string' }, count: { type: 'number' } }),
+  makeTool('runCommand', ['command', 'timeout'], {
+    command: { type: 'string' },
+    timeout: { type: 'integer' }
+  })
 ]
 
 const mockAdapter = () => ({
@@ -64,6 +68,28 @@ describe('FormVerifier', () => {
       )
       expect(result.approved).toBe(true)
       expect(result.costLLM).toBe(false)
+    })
+
+    it('aprueba valor entero contra schema integer', () => {
+      const verifier = new FormVerifier(mockAdapter())
+      const result = verifier.checkSchema(
+        { name: 'runCommand', input: { command: 'ls', timeout: 30000 } },
+        TOOLS
+      )
+      expect(result.approved).toBe(true)
+      expect(result.costLLM).toBe(false)
+    })
+
+    it('rechaza valor float contra schema integer', () => {
+      const verifier = new FormVerifier(mockAdapter())
+      const result = verifier.checkSchema(
+        { name: 'runCommand', input: { command: 'ls', timeout: 30.5 } },
+        TOOLS
+      )
+      expect(result.approved).toBe(false)
+      expect(result.costLLM).toBe(false)
+      expect(result.reason).toContain('tipo incorrecto')
+      expect(result.reason).toContain('se espera integer')
     })
   })
 

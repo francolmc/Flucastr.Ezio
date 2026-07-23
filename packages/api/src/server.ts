@@ -6,7 +6,7 @@ import { OllamaAdapter, AnthropicAdapter, OpenAIAdapter, GoogleAdapter, ConfigSe
 import type { ModelAdapter, RitosService } from '@ezio/core'
 import { runPipeline } from './pipeline.js'
 import type { MessagesRequest } from './pipeline.js'
-import { normalizeMessages, normalizeSystem } from './normalizeMessages.js'
+import { normalizeMessages, normalizeSystem, getLastGenuineUserText } from './normalizeMessages.js'
 import type { RawIncomingMessage } from './normalizeMessages.js'
 import { sendSSEResponse } from './sseResponse.js'
 
@@ -61,8 +61,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       try {
+        const lastUserTurn = getLastGenuineUserText(request.messages as RawIncomingMessage[])
         const adapter = buildAdapter()
-        const response = await runPipeline(adapter, normalizedRequest, ritos, userId, config.model.name)
+        const response = await runPipeline(adapter, normalizedRequest, ritos, userId, config.model.name, lastUserTurn)
         if (request.stream) {
           return sendSSEResponse(res, response)
         }

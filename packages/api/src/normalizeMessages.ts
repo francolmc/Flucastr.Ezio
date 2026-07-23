@@ -62,3 +62,19 @@ export function normalizeSystem(system: string | AnthropicContentBlock[] | undef
   const normalized = normalizeContent(system)
   return normalized === '' ? undefined : normalized
 }
+
+export function isGenuineUserText(msg: RawIncomingMessage): boolean {
+  if (msg.role !== 'user') return false
+  if (typeof msg.content === 'string') return true
+  if (!Array.isArray(msg.content)) return false
+  return msg.content.some(b => b.type === 'text' && b.text !== undefined && b.text.trim() !== '')
+}
+
+export function getLastGenuineUserText(messages: RawIncomingMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (isGenuineUserText(messages[i])) {
+      return normalizeContent(messages[i].content)
+    }
+  }
+  return ''
+}
