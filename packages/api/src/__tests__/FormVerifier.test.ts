@@ -139,6 +139,47 @@ describe('FormVerifier', () => {
       const call = adapter.complete.mock.calls[0]
       expect(call[1]).toEqual(expect.objectContaining({ numCtx: 8192 }))
     })
+
+    it('NO con CATEGORY: NEEDS_STEP devuelve failureType coherence_needs_step y suggestion', async () => {
+      const adapter = mockAdapter()
+      adapter.complete = vi.fn().mockResolvedValue('The file has not been read yet.\nNO\nCATEGORY: NEEDS_STEP\nSUGGESTION: Read the file first before writing to it.')
+      const verifier = new FormVerifier(adapter)
+      const result = await verifier.checkCoherence({ name: 'sendMessage', input: { message: 'hi' } }, 'envia un mensaje')
+      expect(result.approved).toBe(false)
+      expect(result.failureType).toBe('coherence_needs_step')
+      expect(result.suggestion).toBe('Read the file first before writing to it.')
+      expect(result.reason).toBe('The file has not been read yet.')
+    })
+
+    it('NO con CATEGORY: REDUNDANT devuelve failureType coherence_redundant', async () => {
+      const adapter = mockAdapter()
+      adapter.complete = vi.fn().mockResolvedValue('The glob already found all files.\nNO\nCATEGORY: REDUNDANT')
+      const verifier = new FormVerifier(adapter)
+      const result = await verifier.checkCoherence({ name: 'sendMessage', input: { message: 'hi' } }, 'envia un mensaje')
+      expect(result.approved).toBe(false)
+      expect(result.failureType).toBe('coherence_redundant')
+      expect(result.reason).toBe('The glob already found all files.')
+    })
+
+    it('NO sin CATEGORY cae a failureType coherence_needs_step (fail-closed)', async () => {
+      const adapter = mockAdapter()
+      adapter.complete = vi.fn().mockResolvedValue('This action seems off.\nNO')
+      const verifier = new FormVerifier(adapter)
+      const result = await verifier.checkCoherence({ name: 'sendMessage', input: { message: 'hi' } }, 'envia un mensaje')
+      expect(result.approved).toBe(false)
+      expect(result.failureType).toBe('coherence_needs_step')
+      expect(result.reason).toBe('This action seems off.')
+    })
+
+    it('YES devuelve approved=true sin failureType', async () => {
+      const adapter = mockAdapter()
+      adapter.complete = vi.fn().mockResolvedValue('ANSWER: YES')
+      const verifier = new FormVerifier(adapter)
+      const result = await verifier.checkCoherence({ name: 'sendMessage', input: { message: 'hi' } }, 'envia un mensaje')
+      expect(result.approved).toBe(true)
+      expect(result.failureType).toBeUndefined()
+      expect(result.suggestion).toBeUndefined()
+    })
   })
 
   describe('verify', () => {

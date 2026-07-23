@@ -168,8 +168,6 @@ export async function runPipeline(
     return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: serialized.tool, input: serialized.input }], 'tool_use')
   }
 
-  logger.warn('retry disparado', { reason: verifyResult.reason })
-
   if (verifyResult.failureType === 'quantity' && verifyResult.quantityDetails?.textFieldKey) {
     const fieldKey = verifyResult.quantityDetails.textFieldKey
     const rejectedContent = typeof proposal.input[fieldKey] === 'string' ? proposal.input[fieldKey] as string : ''
@@ -211,7 +209,18 @@ Expand this exact content with more detail, explanation, and examples until it r
     return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retryProposal.name, input: retryProposal.input }], 'tool_use')
   }
 
-  const retrySystemSupplement = `Previous verification failed: ${verifyResult.reason}\n\nRevise your reasoning.`
+  logger.warn('retry disparado', { reason: verifyResult.reason, failureType: verifyResult.failureType })
+
+  let retrySystemSupplement: string
+  if (verifyResult.failureType === 'coherence_redundant') {
+    retrySystemSupplement = `Previous check concluded no further action was needed: ${verifyResult.reason}
+
+Before accepting that conclusion, explicitly check each distinct part of the user's original request one by one. If any part still lacks a literal, concrete result, propose the tool call that resolves that specific part instead of concluding the task is done. Only agree no action is needed if every single part is genuinely already covered by a completed step.`
+  } else if (verifyResult.suggestion) {
+    retrySystemSupplement = `Previous verification failed: ${verifyResult.reason}\n\nConcrete next step to take instead: ${verifyResult.suggestion}`
+  } else {
+    retrySystemSupplement = `Previous verification failed: ${verifyResult.reason}\n\nReconsider what concrete step is actually needed before proposing a tool call.`
+  }
 
   const retryReasonText = await reasonPhase(
     adapter,
@@ -236,15 +245,36 @@ Expand this exact content with more detail, explanation, and examples until it r
   const retryProposal = { name: retrySerialized.tool, input: retrySerialized.input }
   const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
 
-  if (!retryVerify.approved) {
-    throw new Error(`Verification rejected after retry: ${retryVerify.reason}`)
+  if (retryVerify.approved) {
+    logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
+    const toolsProposed = [retryProposal.name]
+    const resultSummary = `Propuso ${retryProposal.name} con input ${JSON.stringify(retryProposal.input)}`
+    const guia = retryReasonText.length > 300 ? retryReasonText.slice(0, 300) : retryReasonText
+    await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
+    logger.info('ritosSave', { saved: true, toolsProposed })
+    return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retrySerialized.tool, input: retrySerialized.input }], 'tool_use')
   }
 
+  if (retryVerify.failureType === 'coherence_redundant') {
+    logger.warn('retry rechazado con coherence_redundant, completando sin accion', { reason: retryVerify.reason })
+    const text = `Ya tengo lo que necesitaba de los pasos anteriores — no hace falta otra acción. La tarea está resuelta.`
+    const resultSummary = text.length > 150 ? text.slice(0, 150) : text
+    const guia = retryVerify.reason.length > 300 ? retryVerify.reason.slice(0, 300) : retryVerify.reason
+    await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
+    logger.info('ritosSave', { saved: true, toolsProposed: [] })
+    logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
+    return buildResponse(model, [{ type: 'text', text }], 'end_turn')
+  }
+
+  logger.warn('retry rechazado con needs_step o sin clasificacion, degradando a texto', { reason: retryVerify.reason, suggestion: retryVerify.suggestion })
+  const suggestionText = retryVerify.suggestion
+    ? ` Para completar la tarea, considera: ${retryVerify.suggestion}`
+    : ''
+  const text = `No se pudo proponer una herramienta válida para completar la tarea.${suggestionText} Detalle: ${retryVerify.reason}`
+  const resultSummary = text.length > 150 ? text.slice(0, 150) : text
+  const guia = retryVerify.reason.length > 300 ? retryVerify.reason.slice(0, 300) : retryVerify.reason
+  await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
+  logger.info('ritosSave', { saved: true, toolsProposed: [] })
   logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
-  const toolsProposed = [retryProposal.name]
-  const resultSummary = `Propuso ${retryProposal.name} con input ${JSON.stringify(retryProposal.input)}`
-  const guia = retryReasonText.length > 300 ? retryReasonText.slice(0, 300) : retryReasonText
-  await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
-  logger.info('ritosSave', { saved: true, toolsProposed })
-  return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retrySerialized.tool, input: retrySerialized.input }], 'tool_use')
+  return buildResponse(model, [{ type: 'text', text }], 'end_turn')
 }

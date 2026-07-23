@@ -110,7 +110,7 @@ describe('runPipeline', () => {
     expect(result.stop_reason).toBe('tool_use')
   })
 
-  it('Caso C: throws error when FormVerifier rejects twice', async () => {
+  it('Caso C: degrada a texto con end_turn cuando FormVerifier rechaza dos veces (sin throw)', async () => {
     const adapter = mockAdapter()
     const ritos = mockRitos()
     adapter.complete
@@ -122,12 +122,109 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('{"tool":"read_file","input":{"path":"notes.txt"}}')
       .mockResolvedValueOnce('NO')
 
-    await expect(runPipeline(adapter as any, {
+    const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
       tools: TOOLS
-    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')).rejects.toThrow('Verification rejected after retry')
+    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
 
-    expect(ritos.saveRito).not.toHaveBeenCalled()
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text' })
+    expect(ritos.saveRito).toHaveBeenCalled()
+    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+  })
+
+  it('Primer rechazo coherence_redundant: ahora SI reintenta reasonPhase (no atajo directo)', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
+      .mockResolvedValueOnce('I should use web_search.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina"}}')
+      .mockResolvedValueOnce("The task is already done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('I should check each part of the request explicitly.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina news"}}')
+      .mockResolvedValueOnce("Still done.\nNO\nCATEGORY: REDUNDANT")
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
+
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text' })
+    expect(ritos.saveRito).toHaveBeenCalled()
+    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+    const totalCalls = adapter.complete.mock.calls.length
+    expect(totalCalls).toBeGreaterThan(5)
+  })
+
+  it('Primer rechazo coherence_needs_step con suggestion: no lanza excepcion y degrada a texto', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
+      .mockResolvedValueOnce('I should use web_search.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test"}}')
+      .mockResolvedValueOnce('NO\nCATEGORY: NEEDS_STEP\nSUGGESTION: Try reading a file first.')
+      .mockResolvedValueOnce('I should use web_search again.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test2"}}')
+      .mockResolvedValueOnce('NO\nCATEGORY: NEEDS_STEP')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'do a search' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'do a search')
+
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text' })
+    expect(ritos.saveRito).toHaveBeenCalled()
+    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+  })
+
+  it('Primer rechazo needs_step, retry rechaza con coherence_redundant: devuelve end_turn task complete', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
+      .mockResolvedValueOnce('I should use web_search.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina"}}')
+      .mockResolvedValueOnce('NO\nCATEGORY: NEEDS_STEP')
+      .mockResolvedValueOnce('I should use web_search again.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina news"}}')
+      .mockResolvedValueOnce("The search was already done.\nNO\nCATEGORY: REDUNDANT")
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
+
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text' })
+    expect(ritos.saveRito).toHaveBeenCalled()
+    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+  })
+
+  it('Primer rechazo redundant, retry tambien rechaza redundant: texto tarea completa con retry de por medio', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
+      .mockResolvedValueOnce('I should use web_search.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina"}}')
+      .mockResolvedValueOnce("The task is already done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('I checked each part explicitly.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina news"}}')
+      .mockResolvedValueOnce("Still complete.\nNO\nCATEGORY: REDUNDANT")
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
+
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text' })
+    expect(ritos.saveRito).toHaveBeenCalled()
+    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
   })
 
   it('Caso D: with more tools than threshold, BM25 filters and result respects maxTools', async () => {
@@ -187,7 +284,7 @@ describe('runPipeline', () => {
     expect(completionSystemMsg).toContain('[/RITO_PATTERN]')
   })
 
-  it('Con FormVerifier rechazando dos veces: ritos.saveRito NUNCA se llama', async () => {
+  it('Con FormVerifier rechazando dos veces: ritos.saveRito se llama con toolsProposed vacio (degradacion a texto)', async () => {
     const adapter = mockAdapter()
     const ritos = mockRitos()
     adapter.complete
@@ -199,14 +296,13 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('{"tool":"read_file","input":{"path":"notes.txt"}}')
       .mockResolvedValueOnce('NO')
 
-    try {
-      await runPipeline(adapter as any, {
-        messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
-        tools: TOOLS
-      }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
-    } catch (_) { }
+    await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
 
-    expect(ritos.saveRito).not.toHaveBeenCalled()
+    expect(ritos.saveRito).toHaveBeenCalled()
+    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
   })
 
   it('Token-based threshold: with 3 large tools (>4000 tokens estimated), filtering is triggered even though count < 12', async () => {

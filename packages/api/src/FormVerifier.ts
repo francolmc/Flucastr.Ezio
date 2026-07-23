@@ -13,8 +13,9 @@ export interface FormVerifierResult {
   approved: boolean
   reason: string
   costLLM: boolean
-  failureType?: 'schema' | 'quantity' | 'coherence'
+  failureType?: 'schema' | 'quantity' | 'coherence_needs_step' | 'coherence_redundant'
   quantityDetails?: { actualWords: number; requiredWords: number; textFieldKey?: string }
+  suggestion?: string
 }
 
 export class FormVerifier {
@@ -115,6 +116,27 @@ export class FormVerifier {
     return null
   }
 
+  private parseCategory(response: string): { category: 'NEEDS_STEP' | 'REDUNDANT'; suggestion?: string } | null {
+    const lines = response.split('\n').map(l => l.trim()).filter(Boolean)
+    let category: 'NEEDS_STEP' | 'REDUNDANT' | null = null
+    let suggestion: string | undefined
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const upperLine = lines[i].toUpperCase()
+      const categoryMatch = upperLine.match(/^CATEGORY:\s*(NEEDS_STEP|REDUNDANT)$/)
+      if (categoryMatch) {
+        category = categoryMatch[1] as 'NEEDS_STEP' | 'REDUNDANT'
+      }
+      const suggestionMatch = lines[i].match(/^SUGGESTION:\s*(.+)$/i)
+      if (suggestionMatch) {
+        suggestion = suggestionMatch[1]
+      }
+    }
+
+    if (category === null) return null
+    return { category, suggestion }
+  }
+
   async checkCoherence(proposal: ToolProposal, lastUserTurn: string, conversationHistory: string, numCtx?: number): Promise<FormVerifierResult> {
     logger.debug(`checkCoherence: tool=${proposal.name}`)
     const prompt = `User's original request: "${lastUserTurn}"
@@ -126,7 +148,20 @@ Proposed next tool call: ${proposal.name}(${JSON.stringify(proposal.input)})
 
 Given what has already happened in this conversation, is this proposed call a reasonable next step toward completing the user's request? It does not need to fully resolve the request by itself — only to be sensible given what's already been done.
 
-First, in one short sentence, explain your reasoning. Then on a new final line, answer exactly YES or NO.`
+First, in one short sentence, explain your reasoning. Then on a new final line, answer exactly YES or NO.
+
+If your answer is NO, add two more lines after that:
+- CATEGORY: NEEDS_STEP (if the proposed action is premature because a prior intermediate step should be done first, e.g., reading a file before overwriting it)
+- CATEGORY: REDUNDANT (if the user's request is already resolved and the proposed action adds nothing new, e.g., repeating a glob/list that was already done)
+
+After the CATEGORY line, if applicable, add:
+SUGGESTION: <one sentence with the concrete next step the model should propose instead>
+
+Example of full NO response:
+The file hasn't been read yet, so we can't overwrite it safely.
+NO
+CATEGORY: NEEDS_STEP
+SUGGESTION: Read the file first to see its current contents before modifying it.`
 
     const response = await this.adapter.complete([
       { role: 'user', content: prompt }
@@ -137,7 +172,16 @@ First, in one short sentence, explain your reasoning. Then on a new final line, 
       return { approved: true, reason: response, costLLM: true }
     }
     if (answer === 'NO') {
-      return { approved: false, reason: response, costLLM: true }
+      const firstLine = response.split('\n').map(l => l.trim()).filter(Boolean)[0] ?? response
+      const parsed = this.parseCategory(response)
+      const failureType = parsed?.category === 'REDUNDANT' ? 'coherence_redundant' : 'coherence_needs_step'
+      return {
+        approved: false,
+        reason: firstLine,
+        costLLM: true,
+        failureType,
+        suggestion: parsed?.suggestion
+      }
     }
     return {
       approved: false,
