@@ -98,7 +98,8 @@ export async function runPipeline(
   const classification = await classifier.classify(
     lastUserTurn,
     undefined,
-    getCurrentDateContext()
+    getCurrentDateContext(),
+    DEFAULT_NUM_CTX
   )
   logger.info('classifier', { level: classification.level, ms: Date.now() - t0 })
 
@@ -153,7 +154,7 @@ export async function runPipeline(
     .join('\n')
     .slice(-2000)
   const t0Verify = Date.now()
-  const verifyResult = await verifier.verify(proposal, filteredTools, lastUserTurn, conversationHistory)
+  const verifyResult = await verifier.verify(proposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
   logger.info('formVerifier', { ms: Date.now() - t0Verify, approved: verifyResult.approved, costLLM: verifyResult.costLLM, reason: verifyResult.reason })
 
   if (verifyResult.approved) {
@@ -193,7 +194,7 @@ Expand this exact content with more detail, explanation, and examples until it r
       name: proposal.name,
       input: { ...proposal.input, [fieldKey]: expandedContent.trim() }
     }
-    const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory)
+    const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
 
     if (!retryVerify.approved) {
       throw new Error(`Verification rejected after retry: ${retryVerify.reason}`)
@@ -230,7 +231,7 @@ Expand this exact content with more detail, explanation, and examples until it r
   }
 
   const retryProposal = { name: retrySerialized.tool, input: retrySerialized.input }
-  const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory)
+  const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
 
   if (!retryVerify.approved) {
     throw new Error(`Verification rejected after retry: ${retryVerify.reason}`)

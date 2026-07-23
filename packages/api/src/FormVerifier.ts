@@ -115,7 +115,7 @@ export class FormVerifier {
     return null
   }
 
-  async checkCoherence(proposal: ToolProposal, lastUserTurn: string, conversationHistory: string): Promise<FormVerifierResult> {
+  async checkCoherence(proposal: ToolProposal, lastUserTurn: string, conversationHistory: string, numCtx?: number): Promise<FormVerifierResult> {
     logger.debug(`checkCoherence: tool=${proposal.name}`)
     const prompt = `User's original request: "${lastUserTurn}"
 
@@ -130,7 +130,7 @@ First, in one short sentence, explain your reasoning. Then on a new final line, 
 
     const response = await this.adapter.complete([
       { role: 'user', content: prompt }
-    ], { temperature: 0 })
+    ], { temperature: 0, think: false, numCtx })
 
     const answer = this.parseAnswer(response)
     if (answer === 'YES') {
@@ -150,7 +150,8 @@ First, in one short sentence, explain your reasoning. Then on a new final line, 
     proposal: ToolProposal,
     declaredTools: AnthropicToolSchema[],
     lastUserTurn: string,
-    conversationHistory: string
+    conversationHistory: string,
+    numCtx?: number
   ): Promise<FormVerifierResult> {
     const schemaResult = this.checkSchema(proposal, declaredTools)
     if (!schemaResult.approved) {
@@ -162,6 +163,6 @@ First, in one short sentence, explain your reasoning. Then on a new final line, 
       return quantityResult
     }
 
-    return this.checkCoherence(proposal, lastUserTurn, conversationHistory)
+    return this.checkCoherence(proposal, lastUserTurn, conversationHistory, numCtx)
   }
 }

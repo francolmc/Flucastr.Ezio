@@ -34,7 +34,7 @@ export class Classifier {
 
   constructor(private adapter: ModelAdapter) {}
 
-  async classify(message: string, sessionContext?: string, dateContext?: string): Promise<ClassificationResult> {
+  async classify(message: string, sessionContext?: string, dateContext?: string, numCtx?: number): Promise<ClassificationResult> {
     const prompt = `You are a task complexity classifier.
 Respond with ONLY valid JSON matching the schema.
 
@@ -79,7 +79,7 @@ JSON response:`
       this.logger.debug('Prompt length:', prompt.length)
       const raw = await this.adapter.complete(
         [{ role: 'system', content: prompt }, { role: 'user', content: message }],
-        { temperature: 0, responseFormat: CLASSIFICATION_SCHEMA, maxTokens: 180, think: false }
+        { temperature: 0, responseFormat: CLASSIFICATION_SCHEMA, maxTokens: 180, think: false, numCtx }
       )
       this.logger.debug('Raw response:', raw.slice(0, 200))
 
@@ -100,7 +100,7 @@ Message: ${message.slice(0, 200)}`
 
       const retryRaw = await this.adapter.complete(
         [{ role: 'user', content: retryPrompt }],
-        { temperature: 0, responseFormat: CLASSIFICATION_SCHEMA, maxTokens: 180, think: false }
+        { temperature: 0, responseFormat: CLASSIFICATION_SCHEMA, maxTokens: 180, think: false, numCtx }
       )
       this.logger.debug('Retry response:', retryRaw.slice(0, 200))
 

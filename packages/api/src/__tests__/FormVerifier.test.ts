@@ -121,6 +121,24 @@ describe('FormVerifier', () => {
       expect(result.costLLM).toBe(true)
       expect(result.reason).toContain('ambigua')
     })
+
+    it('llama adapter.complete con think: false', async () => {
+      const adapter = mockAdapter()
+      adapter.complete = vi.fn().mockResolvedValue('ANSWER: YES')
+      const verifier = new FormVerifier(adapter)
+      await verifier.checkCoherence({ name: 'sendMessage', input: { message: 'hi' } }, 'envia un mensaje')
+      const call = adapter.complete.mock.calls[0]
+      expect(call[1]).toEqual(expect.objectContaining({ think: false }))
+    })
+
+    it('llama adapter.complete con numCtx cuando numCtx es pasado', async () => {
+      const adapter = mockAdapter()
+      adapter.complete = vi.fn().mockResolvedValue('ANSWER: YES')
+      const verifier = new FormVerifier(adapter)
+      await verifier.checkCoherence({ name: 'sendMessage', input: { message: 'hi' } }, 'envia un mensaje', '', 8192)
+      const call = adapter.complete.mock.calls[0]
+      expect(call[1]).toEqual(expect.objectContaining({ numCtx: 8192 }))
+    })
   })
 
   describe('verify', () => {

@@ -192,4 +192,13 @@ describe('Classifier', () => {
     expect(options.responseFormat).toBeDefined()
     expect(options.responseFormat).not.toBeUndefined()
   })
+
+  it('adapter.complete is called with options.numCtx when numCtx is passed', async () => {
+    fakeAdapter.complete = vi.fn().mockResolvedValue('{"requires_environment_action":false,"level":"simple","reason":"test"}')
+    const classifier = new Classifier(fakeAdapter)
+    await classifier.classify('hello', undefined, undefined, 8192)
+    const call = fakeAdapter.complete.mock.calls[0]
+    const options = call[1] as Record<string, unknown>
+    expect(options.numCtx).toBe(8192)
+  })
 })
