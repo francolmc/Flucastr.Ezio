@@ -29,6 +29,10 @@ export async function reasonPhase(
   const planState = formatPlanState(extractCompletedSteps(messages))
   const planStateBlock = planState ? `${planState}\n\n` : ''
 
+  const antiSelfConditioningNote = `
+
+Important: if an earlier assistant turn in this conversation concluded that "no further action was needed" or that a task was "already resolved", that conclusion applied only to the user request at that point in time — it does NOT automatically apply to the newest user message below. Evaluate the newest user message on its own terms: if it asks for something new or additional (even a small change like adding to, modifying, or building on existing work), that is a new, separate request that needs its own action, regardless of what a previous turn concluded.`
+
   const actionInstruction = requiresEnvironmentAction === true
     ? `This task has already been determined to require a real action using one of the available tools above — you MUST propose a tool call, even if you already know the answer from your own training.
 
@@ -42,8 +46,8 @@ Correct response: "I will use the web_search tool to search for the current pres
 
 If [PLAN_STATE] is present above, check it first: if a step there already produced the information you need (e.g. a completed web_search with a literal result), use that literal result to finish the task now — do NOT call the same tool again to re-fetch information you already have. Only call a tool again if [PLAN_STATE] shows the specific action you now need is genuinely still missing.
 
-Now, for the actual task above: you MUST explicitly write the exact tool name from the list above (e.g. "I will use the web_search tool to..."). Do not just output a raw answer or explanation without naming which tool executes it.`
-    : `Based on the available tools and conversation, determine the next action. If [PLAN_STATE] is present above, it lists every tool call already executed, in order, with literal results — treat that list as ground truth about progress so far, and never propose a call that already appears there. If a tool call is needed for the step that is genuinely still missing, you MUST explicitly write the exact tool name from the list above (e.g. "I will use the bash tool to..."). Do not just output a raw shell command or code snippet without naming which tool executes it. If the user's request has multiple distinct parts, verify each part has already been resolved — per [PLAN_STATE] if present, otherwise from the conversation above — before answering directly; if any part is still unresolved and a tool above could resolve it, propose that tool call instead of answering. Only answer directly, without a tool, once every part of the user's request has been addressed, or if no available tool can help with what remains.`
+Now, for the actual task above: you MUST explicitly write the exact tool name from the list above (e.g. "I will use the web_search tool to..."). Do not just output a raw answer or explanation without naming which tool executes it.${antiSelfConditioningNote}`
+    : `Based on the available tools and conversation, determine the next action. If [PLAN_STATE] is present above, it lists every tool call already executed, in order, with literal results — treat that list as ground truth about progress so far, and never propose a call that already appears there. If a tool call is needed for the step that is genuinely still missing, you MUST explicitly write the exact tool name from the list above (e.g. "I will use the bash tool to..."). Do not just output a raw shell command or code snippet without naming which tool executes it. If the user's request has multiple distinct parts, verify each part has already been resolved — per [PLAN_STATE] if present, otherwise from the conversation above — before answering directly; if any part is still unresolved and a tool above could resolve it, propose that tool call instead of answering. Only answer directly, without a tool, once every part of the user's request has been addressed, or if no available tool can help with what remains.${antiSelfConditioningNote}`
 
   const prompt = `${system.trim()}
 

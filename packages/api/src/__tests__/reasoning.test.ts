@@ -161,5 +161,31 @@ describe('reasoning (via serializePhase)', () => {
       const prompt = call[0][0].content as string
       expect(prompt).toContain('Only answer directly, without a tool')
     })
+
+    it('con historial que incluye conclusion previa del asistente, prompt contiene antiSelfConditioningNote (requiresEnvironmentAction=false)', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [
+        { role: 'user', content: 'create a file' },
+        { role: 'assistant', content: 'The task has already been completed, no further action is required.' },
+        { role: 'user', content: 'add a description to the file' }
+      ]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false)
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).toContain('Important: if an earlier assistant turn in this conversation concluded that "no further action was needed"')
+    })
+
+    it('con historial que incluye conclusion previa del asistente, prompt contiene antiSelfConditioningNote (requiresEnvironmentAction=true)', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [
+        { role: 'user', content: 'who is the president of Chile' },
+        { role: 'assistant', content: 'The task has already been completed, no further action is required.' },
+        { role: 'user', content: 'who is the president of Argentina' }
+      ]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, true)
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).toContain('Important: if an earlier assistant turn in this conversation concluded that "no further action was needed"')
+    })
   })
 })
