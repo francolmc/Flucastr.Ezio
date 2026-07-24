@@ -1,6 +1,7 @@
-import type { ModelAdapter } from '@ezio/core'
+import type { ModelAdapter, ChatMessage } from '@ezio/core'
 import { createLogger } from '@ezio/core'
 import type { AnthropicToolSchema } from './types.js'
+import { extractCompletedSteps, formatPlanState } from './planState.js'
 
 const logger = createLogger('FormVerifier')
 
@@ -137,8 +138,9 @@ export class FormVerifier {
     return { category, suggestion }
   }
 
-  async checkCoherence(proposal: ToolProposal, lastUserTurn: string, conversationHistory: string, numCtx?: number): Promise<FormVerifierResult> {
+  async checkCoherence(proposal: ToolProposal, lastUserTurn: string, conversationHistory: string, numCtx?: number, messages?: ChatMessage[]): Promise<FormVerifierResult> {
     logger.debug(`checkCoherence: tool=${proposal.name}`)
+    const planStateBlock = messages ? formatPlanState(extractCompletedSteps(messages)) : ''
     const prompt = `User's original request: "${lastUserTurn}"
 
 Conversation so far:
@@ -146,24 +148,28 @@ ${conversationHistory}
 
 (Some previous assistant responses are omitted above and replaced with a placeholder — this is intentional, to avoid biasing this judgment with prior conclusions. Base your answer only on what tool calls were actually executed, shown in the history, and on the user's request below — not on any previous assistant claim that a task was already finished.)
 
-Proposed next tool call: ${proposal.name}(${JSON.stringify(proposal.input)})
+${planStateBlock ? planStateBlock + '\n\n' : ''}Proposed next tool call: ${proposal.name}(${JSON.stringify(proposal.input)})
 
-Given what has already happened in this conversation, is this proposed call a reasonable next step toward completing the user's request? It does not need to fully resolve the request by itself — only to be sensible given what's already been done.
+Given what has already happened in this conversation, is this proposed call a reasonable next step toward completing the user's request? It does not need to fully resolve the request by itself — only to be sensible given what's already been done. If the user's request has multiple distinct parts and this proposal correctly addresses the next part that is still missing — even if it's the very first action taken, like creating a file that doesn't exist yet — that is a valid YES, not a rejection.
 
 First, in one short sentence, explain your reasoning. Then on a new final line, answer exactly YES or NO.
 
 If your answer is NO, add two more lines after that:
-- CATEGORY: NEEDS_STEP (if the proposed action is premature because a prior intermediate step should be done first, e.g., reading a file before overwriting it)
+- CATEGORY: NEEDS_STEP (if the proposed action is premature because a prior intermediate step should be done first, e.g., reading an EXISTING file before overwriting it — this does not apply to creating a new file that doesn't exist yet)
 - CATEGORY: REDUNDANT (if the user's request is already resolved and the proposed action adds nothing new, e.g., repeating a glob/list that was already done)
 
 After the CATEGORY line, if applicable, add:
 SUGGESTION: <one sentence with the concrete next step the model should propose instead>
 
-Example of full NO response:
-The file hasn't been read yet, so we can't overwrite it safely.
+Example of a NO response (existing file, needs a prior read step):
+The file already exists and hasn't been read yet, so we can't overwrite it safely without knowing its current contents.
 NO
 CATEGORY: NEEDS_STEP
-SUGGESTION: Read the file first to see its current contents before modifying it.`
+SUGGESTION: Read the file first to see its current contents before modifying it.
+
+Example of a YES response (first step of a multi-part request, file does not exist yet):
+The file doesn't exist yet, so creating it now is the correct first step toward the user's multi-part request.
+YES`
 
     const response = await this.adapter.complete([
       { role: 'user', content: prompt }
@@ -197,7 +203,8 @@ SUGGESTION: Read the file first to see its current contents before modifying it.
     declaredTools: AnthropicToolSchema[],
     lastUserTurn: string,
     conversationHistory: string,
-    numCtx?: number
+    numCtx?: number,
+    messages?: ChatMessage[]
   ): Promise<FormVerifierResult> {
     const schemaResult = this.checkSchema(proposal, declaredTools)
     if (!schemaResult.approved) {
@@ -209,6 +216,6 @@ SUGGESTION: Read the file first to see its current contents before modifying it.
       return quantityResult
     }
 
-    return this.checkCoherence(proposal, lastUserTurn, conversationHistory, numCtx)
+    return this.checkCoherence(proposal, lastUserTurn, conversationHistory, numCtx, messages)
   }
 }

@@ -177,19 +177,11 @@ export async function runPipeline(
 
   const t0Reason = Date.now()
   const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, toolsWithRespond, DEFAULT_NUM_CTX, classification.requires_environment_action)
-  logger.info('reasonPhase', { ms: Date.now() - t0Reason, preview: reasonText.slice(0, 100) })
+  logger.info('reasonPhase', { ms: Date.now() - t0Reason, preview: reasonText.slice(0, 600) })
 
   const t0Serialize = Date.now()
   const serialized = await serializePhase(adapter, reasonText, toolsWithRespond, DEFAULT_NUM_CTX)
   logger.info('serializePhase', { ms: Date.now() - t0Serialize, tool: serialized?.tool ?? 'ninguna' })
-
-  if (serialized && serialized.tool === 'respond') {
-    const message = typeof serialized.input.message === 'string'
-      ? serialized.input.message
-      : reasonText
-    logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
-    return buildResponse(model, [{ type: 'text', text: message }], 'end_turn')
-  }
 
   const verifier = new FormVerifier(adapter)
 
@@ -211,7 +203,7 @@ export async function runPipeline(
 
       if (escalationSerialized) {
         const escalationProposal = { name: escalationSerialized.tool, input: escalationSerialized.input }
-        const escalationVerify = await verifier.verify(escalationProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
+        const escalationVerify = await verifier.verify(escalationProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
 
         logger.info('escalation_patron_b', {
           succeeded: escalationVerify.approved,
@@ -238,10 +230,18 @@ export async function runPipeline(
 
   const proposal = { name: serialized.tool, input: serialized.input }
   const t0Verify = Date.now()
-  const verifyResult = await verifier.verify(proposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
+  const verifyResult = await verifier.verify(proposal, toolsWithRespond, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
   logger.info('formVerifier', { ms: Date.now() - t0Verify, approved: verifyResult.approved, costLLM: verifyResult.costLLM, reason: verifyResult.reason })
 
   if (verifyResult.approved) {
+    if (proposal.name === 'respond') {
+      const message = typeof proposal.input.message === 'string'
+        ? proposal.input.message
+        : reasonText
+      logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
+      return buildResponse(model, [{ type: 'text', text: message }], 'end_turn')
+    }
+
     const toolsProposed = [proposal.name]
     const resultSummary = `Propuso ${proposal.name} (aprobado directo)`
     const guia = buildProceduralGuia(proposal.name, 'direct')
@@ -277,7 +277,7 @@ Expand this exact content with more detail, explanation, and examples until it r
       name: proposal.name,
       input: { ...proposal.input, [fieldKey]: expandedContent.trim() }
     }
-    const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
+    const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
 
     if (!retryVerify.approved) {
       throw new Error(`Verification rejected after retry: ${retryVerify.reason}`)
@@ -322,7 +322,7 @@ Before accepting that conclusion, explicitly check each distinct part of the use
   }
 
   const retryProposal = { name: retrySerialized.tool, input: retrySerialized.input }
-  const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
+  const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
 
   if (retryVerify.approved) {
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
@@ -354,7 +354,7 @@ Before accepting that conclusion, explicitly check each distinct part of the use
 
     if (escalationSerialized) {
       const escalationProposal = { name: escalationSerialized.tool, input: escalationSerialized.input }
-      const escalationVerify = await verifier.verify(escalationProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
+      const escalationVerify = await verifier.verify(escalationProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
 
       logger.info('escalation_patron_a', {
         succeeded: escalationVerify.approved,

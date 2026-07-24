@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "eval:l2": "tsx eval/run-l2.ts",
-    "eval:l3": "tsx eval/run-l3.ts"
+    "eval:l3": "tsx eval/run-l3.ts",
+    "eval:serialize-fidelity": "tsx eval/run-serialize-fidelity.ts"
   },
   "dependencies": {
     "@ezio/core": "workspace:*"

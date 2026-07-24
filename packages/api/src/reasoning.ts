@@ -2,6 +2,7 @@ import type { ModelAdapter, ChatMessage } from '@ezio/core'
 import type { AnthropicToolSchema } from './types.js'
 import { extractCompletedSteps, formatPlanState } from './planState.js'
 import { createLogger } from '@ezio/core'
+import { detectMentionedTool } from './toolMention.js'
 
 const logger = createLogger('reasoning')
 
@@ -29,7 +30,9 @@ export async function reasonPhase(
   const planState = formatPlanState(extractCompletedSteps(messages))
   const planStateBlock = planState ? `${planState}\n\n` : ''
 
-  const antiSelfConditioningNote = `
+  const antiSelfConditioningNote = process.env.EZIO_DISABLE_ANTISC === 'true'
+  ? ''
+  : `
 
 Important: if an earlier assistant turn in this conversation concluded that "no further action was needed" or that a task was "already resolved", that conclusion applied only to the user request at that point in time — it does NOT automatically apply to the newest user message below. Evaluate the newest user message on its own terms: if it asks for something new or additional (even a small change like adding to, modifying, or building on existing work), that is a new, separate request that needs its own action, regardless of what a previous turn concluded.`
 
@@ -46,8 +49,8 @@ Correct response: "I will use the web_search tool to search for the current pres
 
 If [PLAN_STATE] is present above, check it first: if a step there already produced the information you need (e.g. a completed web_search with a literal result), use that literal result to finish the task now — do NOT call the same tool again to re-fetch information you already have. Only call a tool again if [PLAN_STATE] shows the specific action you now need is genuinely still missing.
 
-Now, for the actual task above: you MUST explicitly write the exact tool name from the list above (e.g. "I will use the web_search tool to..."). Do not just output a raw answer or explanation without naming which tool executes it.${antiSelfConditioningNote}`
-    : `Based on the available tools and conversation, determine the next action. If [PLAN_STATE] is present above, it lists every tool call already executed, in order, with literal results — treat that list as ground truth about progress so far, and never propose a call that already appears there. If a tool call is needed for the step that is genuinely still missing, you MUST explicitly write the exact tool name from the list above (e.g. "I will use the bash tool to..."). Do not just output a raw shell command or code snippet without naming which tool executes it. If the user's request has multiple distinct parts, verify each part has already been resolved — per [PLAN_STATE] if present, otherwise from the conversation above — before answering directly; if any part is still unresolved and a tool above could resolve it, propose that tool call instead of answering. Only answer directly, without a tool, once every part of the user's request has been addressed, or if no available tool can help with what remains.${antiSelfConditioningNote}`
+Now, for the actual task above: you MUST explicitly write the exact tool name from the list above (e.g. "I will use the web_search tool to..."). Do not just output a raw answer or explanation without naming which tool executes it. Two more requirements for how you close your answer: (1) If completing this action requires writing or passing a literal value that depends on earlier results in this conversation (for example, the content of a file to create, or a specific computed value), you MUST state that literal value explicitly and completely in your answer now — do not just describe the intention to compute it later, since no one will compute it after you. (2) End your answer with a short final sentence naming only the single tool you have decided to use, as the very last words of your response — for example: '...using the write tool.' Do not name any other tool after that point.${antiSelfConditioningNote}`
+    : `Based on the available tools and conversation, determine the next action. If [PLAN_STATE] is present above, it lists every tool call already executed, in order, with literal results — treat that list as ground truth about progress so far, and never propose a call that already appears there. If a tool call is needed for the step that is genuinely still missing, you MUST explicitly write the exact tool name from the list above (e.g. "I will use the bash tool to..."). Do not just output a raw shell command or code snippet without naming which tool executes it. If the user's request has multiple distinct parts, verify each part has already been resolved — per [PLAN_STATE] if present, otherwise from the conversation above — before answering directly; if any part is still unresolved and a tool above could resolve it, propose that tool call instead of answering. Only answer directly, without a tool, once every part of the user's request has been addressed, or if no available tool can help with what remains. Two more requirements for how you close your answer: (1) If completing this action requires writing or passing a literal value that depends on earlier results in this conversation (for example, the content of a file to create, or a specific computed value), you MUST state that literal value explicitly and completely in your answer now — do not just describe the intention to compute it later, since no one will compute it after you. (2) End your answer with a short final sentence naming only the single tool you have decided to use, as the very last words of your response — for example: '...using the write tool.' Do not name any other tool after that point.${antiSelfConditioningNote}`
 
   const prompt = `${system.trim()}
 
@@ -138,7 +141,14 @@ export async function serializePhase(
   numCtx?: number,
   numGpu?: number
 ): Promise<{ tool: string; input: Record<string, unknown> } | null> {
-  const toolsDescription = buildToolsDescription(tools)
+  const detectedTool = detectMentionedTool(reasonText, tools)
+  const narrowedTools: AnthropicToolSchema[] = detectedTool ? [detectedTool] : tools
+
+  if (detectedTool) {
+    logger.info('serializePhase tool narrowing', { detected: detectedTool.name })
+  }
+
+  const toolsDescription = buildToolsDescription(narrowedTools)
   const prompt = `You have the following reasoning about what action to take:
 
 ${reasonText}
@@ -151,7 +161,7 @@ Based on the reasoning above, produce a JSON object representing the tool call. 
 Format: { "tool": "toolName", "input": { ... } }
 JSON response:`
 
-  const toolNames = tools.map(t => t.name)
+  const toolNames = narrowedTools.map(t => t.name)
   const responseFormat = {
     type: 'object',
     properties: {
@@ -165,18 +175,21 @@ JSON response:`
     { role: 'user', content: prompt }
   ], { temperature: 0, numCtx, think: false, numGpu, responseFormat })
 
+  logger.info('serializePhase raw response completa', { response })
+
   logger.debug('serializePhase raw response', {
     reasonTextPreview: reasonText.slice(0, 300),
     serializeResponsePreview: response.slice(0, 300)
   })
 
   if (response.trim() === 'NO_TOOL') {
+    logger.info('serializePhase devolvió NO_TOOL', { reasonTextPreview: reasonText.slice(0, 300) })
     return null
   }
 
   const parsed = parseJson(response)
   if (parsed === null) {
-    logger.debug('serializePhase parse failed', { rawResponse: response })
+    logger.info('serializePhase parse failed', { rawResponse: response })
   }
   return parsed
 }
