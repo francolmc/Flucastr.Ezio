@@ -352,4 +352,182 @@ describe('runPipeline', () => {
     const classifyOptions = classifyCall[1] as Record<string, unknown>
     expect(classifyOptions).toBeDefined()
   })
+
+  it('sin escalationAdapter: serialized null con requires_environment_action=true degrada a texto (regresion)', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search","requires_environment_action":true}')
+      .mockResolvedValueOnce('The current president of Chile is Gabriel Boric.')
+      .mockResolvedValueOnce('NO_TOOL')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'quien es el actual presidente de Chile' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'quien es el actual presidente de Chile', null)
+
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text' })
+    expect(result.content[0].text).toContain('Gabriel Boric')
+  })
+
+  it('escalation: tier-1 devuelve texto, escalationAdapter propone tool valida → tool_use final', async () => {
+    const adapter = mockAdapter()
+    const escalationAdapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search","requires_environment_action":true}')
+      .mockResolvedValueOnce('The current president of Chile is Gabriel Boric.')
+      .mockResolvedValueOnce('NO_TOOL')
+      .mockResolvedValueOnce('YES')
+    escalationAdapter.complete
+      .mockResolvedValueOnce('I will use web_search to search for the current president of Chile.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"current president of Chile 2024"}}')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'quien es el actual presidente de Chile' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'quien es el actual presidente de Chile', escalationAdapter as any)
+
+    expect(result.stop_reason).toBe('tool_use')
+    expect(result.content[0]).toMatchObject({
+      type: 'tool_use',
+      name: 'web_search',
+      input: { query: 'current president of Chile 2024' }
+    })
+    expect(ritos.saveRito.mock.calls[0][2]).toEqual(['web_search'])
+    expect(ritos.saveRito.mock.calls[0][3]).toContain('via escalamiento')
+  })
+
+  it('escalation: si escalationAdapter tb falla, degrada a texto sin error', async () => {
+    const adapter = mockAdapter()
+    const escalationAdapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search","requires_environment_action":true}')
+      .mockResolvedValueOnce('The current president of Chile is Gabriel Boric.')
+      .mockResolvedValueOnce('NO_TOOL')
+    escalationAdapter.complete
+      .mockResolvedValueOnce('I will use web_search to search for it.')
+      .mockResolvedValueOnce('NO_TOOL')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'quien es el actual presidente de Chile' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'quien es el actual presidente de Chile', escalationAdapter as any)
+
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text' })
+  })
+
+  it('patron_a: sin escalationAdapter, doble rechazo coherence_redundant degrada a texto igual (regresion)', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
+      .mockResolvedValueOnce('I should use web_search.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test"}}')
+      .mockResolvedValueOnce("Already done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('I checked each part explicitly.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test2"}}')
+      .mockResolvedValueOnce("Still done.\nNO\nCATEGORY: REDUNDANT")
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'do a search' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'do a search', null)
+
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text' })
+    expect(result.content[0].text).toContain('Ya tengo lo que necesitaba')
+  })
+
+  it('patron_a: doble rechazo coherence_redundant, escalationAdapter propone tool distinta aprobada → tool_use', async () => {
+    const adapter = mockAdapter()
+    const escalationAdapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
+      .mockResolvedValueOnce('I should use web_search.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test"}}')
+      .mockResolvedValueOnce("Already done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('I checked each part explicitly.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test2"}}')
+      .mockResolvedValueOnce("Still done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('YES')
+    escalationAdapter.complete
+      .mockResolvedValueOnce('I should use read_file to check the file first.')
+      .mockResolvedValueOnce('{"tool":"read_file","input":{"path":"notes.txt"}}')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'do a search' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'do a search', escalationAdapter as any)
+
+    expect(result.stop_reason).toBe('tool_use')
+    expect(result.content[0]).toMatchObject({
+      type: 'tool_use',
+      name: 'read_file',
+      input: { path: 'notes.txt' }
+    })
+    expect(ritos.saveRito.mock.calls[0][2]).toEqual(['read_file'])
+    expect(ritos.saveRito.mock.calls[0][3]).toContain('via escalamiento')
+  })
+
+  it('patron_a: escalation tb falla, degrada a texto coherence_redundant', async () => {
+    const adapter = mockAdapter()
+    const escalationAdapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
+      .mockResolvedValueOnce('I should use web_search.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test"}}')
+      .mockResolvedValueOnce("Already done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('I checked each part explicitly.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test2"}}')
+      .mockResolvedValueOnce("Still done.\nNO\nCATEGORY: REDUNDANT")
+    escalationAdapter.complete
+      .mockResolvedValueOnce('I should use read_file.')
+      .mockResolvedValueOnce('NO_TOOL')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'do a search' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'do a search', escalationAdapter as any)
+
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text' })
+    expect(result.content[0].text).toContain('Ya tengo lo que necesitaba')
+  })
+
+  it('ritosLookupEnabled: false desactiva lookupPattern pero recordPattern sigue ejecutandose', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"simple","reason":"greeting"}')
+      .mockResolvedValueOnce('Hola! Como estas?')
+
+    await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'hola' }]
+    }, ritos as any, 'test-user', 'test-model', 'hola', null, undefined, false)
+
+    expect(ritos.findRito).not.toHaveBeenCalled()
+    expect(ritos.saveRito).toHaveBeenCalled()
+  })
+
+  it('ritosLookupEnabled omitido (undefined): lookupPattern se ejecuta normalmente (regresion)', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    ritos.findRito.mockReturnValue(null)
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"simple","reason":"greeting"}')
+      .mockResolvedValueOnce('Hola! Como estas?')
+
+    await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'hola' }]
+    }, ritos as any, 'test-user', 'test-model', 'hola')
+
+    expect(ritos.findRito).toHaveBeenCalled()
+    expect(ritos.saveRito).toHaveBeenCalled()
+  })
 })

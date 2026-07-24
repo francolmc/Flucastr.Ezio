@@ -11,6 +11,14 @@ export interface ApiConfig {
     baseUrl?: string
     apiKey?: string
   }
+  escalationModel?: {
+    provider: 'ollama' | 'anthropic' | 'openai' | 'google'
+    name: string
+    baseUrl?: string
+    apiKey?: string
+    numGpu?: number
+  }
+  ritosLookupEnabled?: boolean
 }
 
 const DEFAULTS: ApiConfig = {
@@ -57,6 +65,20 @@ export function loadApiConfig(): ApiConfig {
       baseUrl: parsed.model?.baseUrl ?? DEFAULTS.model.baseUrl,
       apiKey: parsed.model?.apiKey
     }
+  }
+
+  if (parsed.escalationModel) {
+    config.escalationModel = {
+      provider: parsed.escalationModel.provider,
+      name: parsed.escalationModel.name,
+      baseUrl: parsed.escalationModel.baseUrl,
+      apiKey: parsed.escalationModel.apiKey,
+      numGpu: parsed.escalationModel.numGpu
+    }
+  }
+
+  if (parsed.ritosLookupEnabled !== undefined) {
+    config.ritosLookupEnabled = parsed.ritosLookupEnabled
   }
 
   if (config.model.provider !== 'ollama' && !config.model.apiKey) {

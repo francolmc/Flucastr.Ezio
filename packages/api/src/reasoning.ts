@@ -21,7 +21,8 @@ export async function reasonPhase(
   messages: ChatMessage[],
   tools: AnthropicToolSchema[],
   numCtx?: number,
-  requiresEnvironmentAction?: boolean
+  requiresEnvironmentAction?: boolean,
+  numGpu?: number
 ): Promise<string> {
   const toolsDescription = buildToolsDescription(tools)
 
@@ -56,7 +57,7 @@ ${actionInstruction}`
 
   return adapter.complete([
     { role: 'user', content: prompt }
-  ], { temperature: 0, numCtx, think: false })
+  ], { temperature: 0, numCtx, think: false, numGpu })
 }
 
 function parseJson(response: string): { tool: string; input: Record<string, unknown> } | null {
@@ -130,7 +131,8 @@ export async function serializePhase(
   adapter: ModelAdapter,
   reasonText: string,
   tools: AnthropicToolSchema[],
-  numCtx?: number
+  numCtx?: number,
+  numGpu?: number
 ): Promise<{ tool: string; input: Record<string, unknown> } | null> {
   const toolsDescription = buildToolsDescription(tools)
   const prompt = `You have the following reasoning about what action to take:
@@ -147,7 +149,7 @@ JSON response:`
 
   const response = await adapter.complete([
     { role: 'user', content: prompt }
-  ], { temperature: 0, numCtx, think: false })
+  ], { temperature: 0, numCtx, think: false, numGpu })
 
   logger.debug('serializePhase raw response', {
     reasonTextPreview: reasonText.slice(0, 300),

@@ -94,4 +94,19 @@ describe('OllamaAdapter', () => {
     const body = JSON.parse(call[1].body)
     expect(body).not.toHaveProperty('think')
   })
+
+  it('complete() with options.numGpu = 0 includes num_gpu: 0 in options', async () => {
+    const adapter = new OllamaAdapter({ baseUrl: 'http://localhost:11434', model: 'llama2' })
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ message: { content: 'response' } })
+    }) as unknown as typeof fetch
+    globalThis.fetch = mockFetch
+
+    await adapter.complete([{ role: 'user', content: 'Hi' }], { numGpu: 0 })
+
+    const call = mockFetch.mock.calls[0]
+    const body = JSON.parse(call[1].body)
+    expect(body.options).toHaveProperty('num_gpu', 0)
+  })
 })

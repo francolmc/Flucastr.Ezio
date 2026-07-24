@@ -15,8 +15,10 @@ const db = ConfigService.createDb(path.join(os.homedir(), '.ezio', 'api-ritos.db
 const ritos = createRitosService(db)
 const userId = config.userId ?? 'default-api-user'
 
-function buildAdapter(): ModelAdapter {
-  const { provider, name, baseUrl, apiKey } = config.model
+type ModelSection = { provider: 'ollama' | 'anthropic' | 'openai' | 'google', name: string, baseUrl?: string, apiKey?: string }
+
+function buildAdapterFromSection(section: ModelSection): ModelAdapter {
+  const { provider, name, baseUrl, apiKey } = section
 
   switch (provider) {
     case 'ollama':
@@ -30,6 +32,15 @@ function buildAdapter(): ModelAdapter {
     default:
       throw new Error(`Unknown provider: ${provider}`)
   }
+}
+
+function buildAdapter(): ModelAdapter {
+  return buildAdapterFromSection(config.model)
+}
+
+function buildEscalationAdapter(): ModelAdapter | null {
+  if (!config.escalationModel) return null
+  return buildAdapterFromSection(config.escalationModel)
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
@@ -63,7 +74,9 @@ const server = http.createServer(async (req, res) => {
       try {
         const lastUserTurn = getLastGenuineUserText(request.messages as RawIncomingMessage[])
         const adapter = buildAdapter()
-        const response = await runPipeline(adapter, normalizedRequest, ritos, userId, config.model.name, lastUserTurn)
+        const escalationAdapter = buildEscalationAdapter()
+        const escalationNumGpu = config.escalationModel?.numGpu
+        const response = await runPipeline(adapter, normalizedRequest, ritos, userId, config.model.name, lastUserTurn, escalationAdapter, escalationNumGpu, config.ritosLookupEnabled)
         if (request.stream) {
           return sendSSEResponse(res, response)
         }

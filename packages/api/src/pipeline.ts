@@ -68,7 +68,10 @@ export async function runPipeline(
   ritos: RitosService,
   userId: string,
   model: string,
-  lastUserTurn: string
+  lastUserTurn: string,
+  escalationAdapter?: ModelAdapter | null,
+  escalationNumGpu?: number,
+  ritosLookupEnabled?: boolean
 ): Promise<MessagesResponse> {
   const startTotal = Date.now()
   const tools = request.tools ?? []
@@ -76,7 +79,9 @@ export async function runPipeline(
 
   const t0Prune = Date.now()
   const pruneResult = await pruneHistory(adapter, request.messages, { numCtx: DEFAULT_NUM_CTX })
-  const lookup = lookupPattern(ritos, userId, lastUserTurn)
+  const lookup = (ritosLookupEnabled ?? true)
+    ? lookupPattern(ritos, userId, lastUserTurn)
+    : { found: false, guiaText: null }
   let effectiveSystem = pruneResult.summary
     ? `${system}\n\n${pruneResult.summary}`
     : system
@@ -143,7 +148,47 @@ export async function runPipeline(
   const serialized = await serializePhase(adapter, reasonText, filteredTools, DEFAULT_NUM_CTX)
   logger.info('serializePhase', { ms: Date.now() - t0Serialize, tool: serialized?.tool ?? 'ninguna' })
 
+  const verifier = new FormVerifier(adapter)
+
   if (!serialized) {
+    if (classification.requires_environment_action === true && escalationAdapter) {
+      logger.warn('patron_b_detectado', { reason: 'texto en vez de tool_use con requires_environment_action=true' })
+      const t0Escalation = Date.now()
+
+      const escalationReasonText = await reasonPhase(
+        escalationAdapter,
+        effectiveSystem,
+        pruneResult.messages,
+        filteredTools,
+        DEFAULT_NUM_CTX,
+        classification.requires_environment_action,
+        escalationNumGpu
+      )
+      const escalationSerialized = await serializePhase(escalationAdapter, escalationReasonText, filteredTools, DEFAULT_NUM_CTX)
+
+      if (escalationSerialized) {
+        const escalationProposal = { name: escalationSerialized.tool, input: escalationSerialized.input }
+        const escalationVerify = await verifier.verify(escalationProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
+
+        logger.info('escalation_patron_b', {
+          succeeded: escalationVerify.approved,
+          ms: Date.now() - t0Escalation
+        })
+
+        if (escalationVerify.approved) {
+          const toolsProposed = [escalationProposal.name]
+          const resultSummary = `Propuso ${escalationProposal.name} con input ${JSON.stringify(escalationProposal.input)} (via escalamiento)`
+          const guia = escalationReasonText.length > 300 ? escalationReasonText.slice(0, 300) : escalationReasonText
+          await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
+          logger.info('ritosSave', { saved: true, toolsProposed })
+          logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
+          return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: escalationProposal.name, input: escalationProposal.input }], 'tool_use')
+        }
+      } else {
+        logger.info('escalation_patron_b', { succeeded: false, reason: 'escalado tampoco propuso tool', ms: Date.now() - t0Escalation })
+      }
+    }
+
     const resultSummary = reasonText.length > 150 ? reasonText.slice(0, 150) : reasonText
     const guia = reasonText.length > 300 ? reasonText.slice(0, 300) : reasonText
     await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
@@ -152,7 +197,6 @@ export async function runPipeline(
     return buildResponse(model, [{ type: 'text', text: reasonText }], 'end_turn')
   }
 
-  const verifier = new FormVerifier(adapter)
   const proposal = { name: serialized.tool, input: serialized.input }
   const t0Verify = Date.now()
   const verifyResult = await verifier.verify(proposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
@@ -253,6 +297,47 @@ Before accepting that conclusion, explicitly check each distinct part of the use
     await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed })
     return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retrySerialized.tool, input: retrySerialized.input }], 'tool_use')
+  }
+
+  if (
+    (retryVerify.failureType === 'coherence_needs_step' || retryVerify.failureType === 'coherence_redundant') &&
+    escalationAdapter
+  ) {
+    logger.warn('patron_a_doble_rechazo', { failureType: retryVerify.failureType, reason: retryVerify.reason })
+    const t0Escalation = Date.now()
+
+    const escalationReasonText = await reasonPhase(
+      escalationAdapter,
+      `${effectiveSystem}\n\n${retrySystemSupplement}`,
+      pruneResult.messages,
+      filteredTools,
+      DEFAULT_NUM_CTX,
+      classification.requires_environment_action,
+      escalationNumGpu
+    )
+    const escalationSerialized = await serializePhase(escalationAdapter, escalationReasonText, filteredTools, DEFAULT_NUM_CTX)
+
+    if (escalationSerialized) {
+      const escalationProposal = { name: escalationSerialized.tool, input: escalationSerialized.input }
+      const escalationVerify = await verifier.verify(escalationProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX)
+
+      logger.info('escalation_patron_a', {
+        succeeded: escalationVerify.approved,
+        ms: Date.now() - t0Escalation
+      })
+
+      if (escalationVerify.approved) {
+        const toolsProposed = [escalationProposal.name]
+        const resultSummary = `Propuso ${escalationProposal.name} con input ${JSON.stringify(escalationProposal.input)} (via escalamiento)`
+        const guia = escalationReasonText.length > 300 ? escalationReasonText.slice(0, 300) : escalationReasonText
+        await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
+        logger.info('ritosSave', { saved: true, toolsProposed })
+        logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
+        return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: escalationProposal.name, input: escalationProposal.input }], 'tool_use')
+      }
+    } else {
+      logger.info('escalation_patron_a', { succeeded: false, reason: 'escalado tampoco propuso tool', ms: Date.now() - t0Escalation })
+    }
   }
 
   if (retryVerify.failureType === 'coherence_redundant') {

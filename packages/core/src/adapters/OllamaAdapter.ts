@@ -26,7 +26,8 @@ export class OllamaAdapter implements ModelAdapter {
         options: {
           temperature: options?.temperature ?? 0.7,
           ...(options?.maxTokens !== undefined ? { num_predict: options.maxTokens } : {}),
-          ...(options?.numCtx !== undefined ? { num_ctx: options.numCtx } : {})
+          ...(options?.numCtx !== undefined ? { num_ctx: options.numCtx } : {}),
+          ...(options?.numGpu !== undefined ? { num_gpu: options.numGpu } : {})
         }
       })
     })

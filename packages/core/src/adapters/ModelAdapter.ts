@@ -9,6 +9,7 @@ export interface CompletionOptions {
   responseFormat?: 'json' | Record<string, unknown>
   think?: boolean
   numCtx?: number
+  numGpu?: number
 }
 
 export interface ModelAdapter {
