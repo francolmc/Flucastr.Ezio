@@ -129,8 +129,7 @@ describe('runPipeline', () => {
 
     expect(result.stop_reason).toBe('end_turn')
     expect(result.content[0]).toMatchObject({ type: 'text' })
-    expect(ritos.saveRito).toHaveBeenCalled()
-    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+    expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 
   it('Primer rechazo coherence_redundant: ahora SI reintenta reasonPhase (no atajo directo)', async () => {
@@ -152,8 +151,7 @@ describe('runPipeline', () => {
 
     expect(result.stop_reason).toBe('end_turn')
     expect(result.content[0]).toMatchObject({ type: 'text' })
-    expect(ritos.saveRito).toHaveBeenCalled()
-    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+    expect(ritos.saveRito).not.toHaveBeenCalled()
     const totalCalls = adapter.complete.mock.calls.length
     expect(totalCalls).toBeGreaterThan(5)
   })
@@ -177,8 +175,7 @@ describe('runPipeline', () => {
 
     expect(result.stop_reason).toBe('end_turn')
     expect(result.content[0]).toMatchObject({ type: 'text' })
-    expect(ritos.saveRito).toHaveBeenCalled()
-    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+    expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 
   it('Primer rechazo needs_step, retry rechaza con coherence_redundant: devuelve end_turn task complete', async () => {
@@ -200,8 +197,7 @@ describe('runPipeline', () => {
 
     expect(result.stop_reason).toBe('end_turn')
     expect(result.content[0]).toMatchObject({ type: 'text' })
-    expect(ritos.saveRito).toHaveBeenCalled()
-    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+    expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 
   it('Primer rechazo redundant, retry tambien rechaza redundant: texto tarea completa con retry de por medio', async () => {
@@ -223,8 +219,7 @@ describe('runPipeline', () => {
 
     expect(result.stop_reason).toBe('end_turn')
     expect(result.content[0]).toMatchObject({ type: 'text' })
-    expect(ritos.saveRito).toHaveBeenCalled()
-    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+    expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 
   it('Caso D: with more tools than threshold, BM25 filters and result respects maxTools', async () => {
@@ -301,8 +296,7 @@ describe('runPipeline', () => {
       tools: TOOLS
     }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
 
-    expect(ritos.saveRito).toHaveBeenCalled()
-    expect(ritos.saveRito.mock.calls[0][2]).toEqual([])
+    expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 
   it('Token-based threshold: with 3 large tools (>4000 tokens estimated), filtering is triggered even though count < 12', async () => {
@@ -512,7 +506,7 @@ describe('runPipeline', () => {
     }, ritos as any, 'test-user', 'test-model', 'hola', null, undefined, false)
 
     expect(ritos.findRito).not.toHaveBeenCalled()
-    expect(ritos.saveRito).toHaveBeenCalled()
+    expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 
   it('ritosLookupEnabled omitido (undefined): lookupPattern se ejecuta normalmente (regresion)', async () => {
@@ -528,6 +522,6 @@ describe('runPipeline', () => {
     }, ritos as any, 'test-user', 'test-model', 'hola')
 
     expect(ritos.findRito).toHaveBeenCalled()
-    expect(ritos.saveRito).toHaveBeenCalled()
+    expect(ritos.saveRito).not.toHaveBeenCalled()
   })
 })

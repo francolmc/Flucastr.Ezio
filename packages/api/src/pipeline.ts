@@ -18,6 +18,21 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+type ApprovalPath = 'direct' | 'retry' | 'escalation_patron_a' | 'escalation_patron_b'
+
+function buildProceduralGuia(toolName: string, path: ApprovalPath, priorFailureType?: string): string {
+  switch (path) {
+    case 'direct':
+      return `Tarea resuelta con tool '${toolName}'. Camino: aprobado en primer intento, sin retry.`
+    case 'retry':
+      return `Tarea resuelta con tool '${toolName}'. Camino: aprobado tras retry (motivo previo: ${priorFailureType ?? 'desconocido'}).`
+    case 'escalation_patron_a':
+      return `Tarea resuelta con tool '${toolName}'. Camino: escalado a tier-2 tras doble rechazo de coherencia (motivo: ${priorFailureType ?? 'desconocido'}).`
+    case 'escalation_patron_b':
+      return `Tarea resuelta con tool '${toolName}'. Camino: escalado a tier-2 — modelo principal respondió texto cuando se esperaba una acción.`
+  }
+}
+
 export interface MessagesRequest {
   system?: string
   messages: ChatMessage[]
@@ -120,10 +135,6 @@ export async function runPipeline(
       ...pruneResult.messages
     ], { temperature: 0.7, maxTokens: request.max_tokens, numCtx: DEFAULT_NUM_CTX, think: false })
     logger.info('camino simple, respuesta directa', { ms: Date.now() - t0 })
-    const resultSummary = response.length > 150 ? response.slice(0, 150) : response
-    const guia = 'Respuesta directa sin tool, clasificación simple'
-    await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
-    logger.info('ritosSave', { saved: true, toolsProposed: [] })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
     return buildResponse(model, [{ type: 'text', text: response }], 'end_turn')
   }
@@ -177,8 +188,8 @@ export async function runPipeline(
 
         if (escalationVerify.approved) {
           const toolsProposed = [escalationProposal.name]
-          const resultSummary = `Propuso ${escalationProposal.name} con input ${JSON.stringify(escalationProposal.input)} (via escalamiento)`
-          const guia = escalationReasonText.length > 300 ? escalationReasonText.slice(0, 300) : escalationReasonText
+          const resultSummary = `Propuso ${escalationProposal.name} (via escalamiento patrón B)`
+          const guia = buildProceduralGuia(escalationProposal.name, 'escalation_patron_b')
           await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
           logger.info('ritosSave', { saved: true, toolsProposed })
           logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
@@ -189,10 +200,6 @@ export async function runPipeline(
       }
     }
 
-    const resultSummary = reasonText.length > 150 ? reasonText.slice(0, 150) : reasonText
-    const guia = reasonText.length > 300 ? reasonText.slice(0, 300) : reasonText
-    await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
-    logger.info('ritosSave', { saved: true, toolsProposed: [] })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
     return buildResponse(model, [{ type: 'text', text: reasonText }], 'end_turn')
   }
@@ -204,8 +211,8 @@ export async function runPipeline(
 
   if (verifyResult.approved) {
     const toolsProposed = [proposal.name]
-    const resultSummary = `Propuso ${proposal.name} con input ${JSON.stringify(proposal.input)}`
-    const guia = reasonText.length > 300 ? reasonText.slice(0, 300) : reasonText
+    const resultSummary = `Propuso ${proposal.name} (aprobado directo)`
+    const guia = buildProceduralGuia(proposal.name, 'direct')
     await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
@@ -246,8 +253,8 @@ Expand this exact content with more detail, explanation, and examples until it r
 
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
     const toolsProposed = [retryProposal.name]
-    const resultSummary = `Propuso ${retryProposal.name} con input ${JSON.stringify(retryProposal.input)}`
-    const guia = expandedContent.length > 300 ? expandedContent.slice(0, 300) : expandedContent
+    const resultSummary = `Propuso ${retryProposal.name} (aprobado tras expandir contenido)`
+    const guia = buildProceduralGuia(retryProposal.name, 'retry', 'quantity')
     await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed })
     return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retryProposal.name, input: retryProposal.input }], 'tool_use')
@@ -278,10 +285,6 @@ Before accepting that conclusion, explicitly check each distinct part of the use
   const retrySerialized = await serializePhase(adapter, retryReasonText, filteredTools, DEFAULT_NUM_CTX)
 
   if (!retrySerialized) {
-    const resultSummary = retryReasonText.length > 150 ? retryReasonText.slice(0, 150) : retryReasonText
-    const guia = retryReasonText.length > 300 ? retryReasonText.slice(0, 300) : retryReasonText
-    await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
-    logger.info('ritosSave', { saved: true, toolsProposed: [] })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
     return buildResponse(model, [{ type: 'text', text: retryReasonText }], 'end_turn')
   }
@@ -292,8 +295,8 @@ Before accepting that conclusion, explicitly check each distinct part of the use
   if (retryVerify.approved) {
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
     const toolsProposed = [retryProposal.name]
-    const resultSummary = `Propuso ${retryProposal.name} con input ${JSON.stringify(retryProposal.input)}`
-    const guia = retryReasonText.length > 300 ? retryReasonText.slice(0, 300) : retryReasonText
+    const resultSummary = `Propuso ${retryProposal.name} (aprobado tras retry)`
+    const guia = buildProceduralGuia(retryProposal.name, 'retry', verifyResult.failureType)
     await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed })
     return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retrySerialized.tool, input: retrySerialized.input }], 'tool_use')
@@ -328,8 +331,8 @@ Before accepting that conclusion, explicitly check each distinct part of the use
 
       if (escalationVerify.approved) {
         const toolsProposed = [escalationProposal.name]
-        const resultSummary = `Propuso ${escalationProposal.name} con input ${JSON.stringify(escalationProposal.input)} (via escalamiento)`
-        const guia = escalationReasonText.length > 300 ? escalationReasonText.slice(0, 300) : escalationReasonText
+        const resultSummary = `Propuso ${escalationProposal.name} (via escalamiento patrón A)`
+        const guia = buildProceduralGuia(escalationProposal.name, 'escalation_patron_a', retryVerify.failureType)
         await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
         logger.info('ritosSave', { saved: true, toolsProposed })
         logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
@@ -343,10 +346,6 @@ Before accepting that conclusion, explicitly check each distinct part of the use
   if (retryVerify.failureType === 'coherence_redundant') {
     logger.warn('retry rechazado con coherence_redundant, completando sin accion', { reason: retryVerify.reason })
     const text = `Ya tengo lo que necesitaba de los pasos anteriores — no hace falta otra acción. La tarea está resuelta.`
-    const resultSummary = text.length > 150 ? text.slice(0, 150) : text
-    const guia = retryVerify.reason.length > 300 ? retryVerify.reason.slice(0, 300) : retryVerify.reason
-    await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
-    logger.info('ritosSave', { saved: true, toolsProposed: [] })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
     return buildResponse(model, [{ type: 'text', text }], 'end_turn')
   }
@@ -356,10 +355,6 @@ Before accepting that conclusion, explicitly check each distinct part of the use
     ? ` Para completar la tarea, considera: ${retryVerify.suggestion}`
     : ''
   const text = `No se pudo proponer una herramienta válida para completar la tarea.${suggestionText} Detalle: ${retryVerify.reason}`
-  const resultSummary = text.length > 150 ? text.slice(0, 150) : text
-  const guia = retryVerify.reason.length > 300 ? retryVerify.reason.slice(0, 300) : retryVerify.reason
-  await recordPattern(ritos, userId, lastUserTurn, [], resultSummary, guia)
-  logger.info('ritosSave', { saved: true, toolsProposed: [] })
   logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
   return buildResponse(model, [{ type: 'text', text }], 'end_turn')
 }
