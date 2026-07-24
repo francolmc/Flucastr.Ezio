@@ -4,7 +4,7 @@ import { scenariosL3 } from './l3-scenarios.js'
 import { createSandbox, cleanupSandbox, executeTool } from './sandbox.js'
 import type { MessagesResponse } from '../src/pipeline.js'
 
-const API_URL = process.env.EZIO_API_URL ?? 'http://localhost:8080/v1/messages'
+const API_URL = process.env.EZIO_API_URL ?? 'http://localhost:4141/v1/messages'
 const N_RUNS = 5
 const DELAY_MS = 200
 
