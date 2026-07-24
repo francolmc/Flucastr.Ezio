@@ -45,6 +45,19 @@ function buildProceduralGuia(toolName: string, path: ApprovalPath, priorFailureT
   }
 }
 
+export function buildCoherenceHistory(messages: { role: string; content: string }[]): string {
+  return messages
+    .map(m => {
+      const label = m.role === 'user' ? 'User' : 'Ezio'
+      if (label === 'Ezio' && !m.content.includes('[tool_use:')) {
+        return `${label}: [respuesta previa omitida — no se restituye texto libre para evitar sesgo]`
+      }
+      return `${label}: ${m.content}`
+    })
+    .join('\n')
+    .slice(-2000)
+}
+
 export interface MessagesRequest {
   system?: string
   messages: ChatMessage[]
@@ -125,10 +138,7 @@ export async function runPipeline(
 
   logger.info('request recibida', { messageCount: request.messages.length, toolCount: tools.length })
 
-  const conversationHistory = pruneResult.messages
-    .map(m => `${m.role === 'user' ? 'User' : 'Ezio'}: ${m.content}`)
-    .join('\n')
-    .slice(-2000)
+  const conversationHistory = buildCoherenceHistory(pruneResult.messages)
 
   const classifier = new Classifier(adapter)
   const t0 = Date.now()

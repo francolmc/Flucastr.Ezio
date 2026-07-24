@@ -144,6 +144,8 @@ export class FormVerifier {
 Conversation so far:
 ${conversationHistory}
 
+(Some previous assistant responses are omitted above and replaced with a placeholder — this is intentional, to avoid biasing this judgment with prior conclusions. Base your answer only on what tool calls were actually executed, shown in the history, and on the user's request below — not on any previous assistant claim that a task was already finished.)
+
 Proposed next tool call: ${proposal.name}(${JSON.stringify(proposal.input)})
 
 Given what has already happened in this conversation, is this proposed call a reasonable next step toward completing the user's request? It does not need to fully resolve the request by itself — only to be sensible given what's already been done.

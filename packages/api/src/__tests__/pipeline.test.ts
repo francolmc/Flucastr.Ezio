@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { runPipeline } from '../pipeline.js'
+import { runPipeline, buildCoherenceHistory } from '../pipeline.js'
 import type { AnthropicToolSchema } from '../types.js'
 
 const TOOLS: AnthropicToolSchema[] = [
@@ -567,5 +567,43 @@ describe('runPipeline', () => {
     expect(result.stop_reason).toBe('tool_use')
     expect(ritos.saveRito).toHaveBeenCalledTimes(1)
     expect(ritos.saveRito.mock.calls[0][2]).toEqual(['web_search'])
+  })
+})
+
+describe('buildCoherenceHistory', () => {
+  it('reemplaza texto libre del asistente con placeholder y omite la frase original', () => {
+    const messages = [
+      { role: 'user', content: 'busca info sobre Argentina' },
+      { role: 'assistant', content: 'The task has already been completed, no further action is required.' },
+      { role: 'user', content: 'agrega más información' }
+    ]
+    const result = buildCoherenceHistory(messages)
+    expect(result).not.toContain('The task has already been completed')
+    expect(result).toContain('[respuesta previa omitida — no se restituye texto libre para evitar sesgo]')
+    expect(result).toContain('User: busca info sobre Argentina')
+    expect(result).toContain('User: agrega más información')
+  })
+
+  it('regresion: mensajes con [tool_use: se restituyen sin placeholder', () => {
+    const messages = [
+      { role: 'user', content: 'busca info sobre Argentina' },
+      { role: 'assistant', content: '[tool_use: web_search {"query":"Argentina"}]' },
+      { role: 'user', content: 'busca más' },
+      { role: 'assistant', content: '[tool_use: web_search {"query":"Chile"}]' }
+    ]
+    const result = buildCoherenceHistory(messages)
+    expect(result).toContain('[tool_use: web_search {"query":"Argentina"}]')
+    expect(result).toContain('[tool_use: web_search {"query":"Chile"}]')
+    expect(result).not.toContain('[respuesta previa omitida')
+  })
+
+  it('regresion: mezcla de mensajes usuario y asistente con tool_use se comporta igual que el map original', () => {
+    const messages = [
+      { role: 'user', content: 'hola' },
+      { role: 'assistant', content: '[tool_use: respond {"message":"hola!"}]' }
+    ]
+    const result = buildCoherenceHistory(messages)
+    expect(result).toContain('User: hola')
+    expect(result).toContain('Ezio: [tool_use: respond {"message":"hola!"}]')
   })
 })
