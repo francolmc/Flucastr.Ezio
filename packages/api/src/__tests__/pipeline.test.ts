@@ -524,4 +524,48 @@ describe('runPipeline', () => {
     expect(ritos.findRito).toHaveBeenCalled()
     expect(ritos.saveRito).not.toHaveBeenCalled()
   })
+
+  it('respond: serializePhase devuelve tool=respond → end_turn sin llamar saveRito ni FormVerifier', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"greeting"}')
+      .mockResolvedValueOnce('The user is greeting me, no tool is needed.')
+      .mockResolvedValueOnce('{"tool":"respond","input":{"message":"¡Hola! ¿Cómo estás?"}}')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'hola, como estas?' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'hola, como estas?')
+
+    expect(result.stop_reason).toBe('end_turn')
+    expect(result.content[0]).toMatchObject({ type: 'text', text: '¡Hola! ¿Cómo estás?' })
+    expect(ritos.saveRito).not.toHaveBeenCalled()
+    expect(adapter.complete).toHaveBeenCalledTimes(3)
+  })
+
+  it('regresion m4: serializePhase devuelve tool real (web_search) → pasa por FormVerifier y graba en Ritos', async () => {
+    const adapter = mockAdapter()
+    const ritos = mockRitos()
+    adapter.complete
+      .mockResolvedValueOnce('{"level":"moderate","reason":"one web_search"}')
+      .mockResolvedValueOnce('I should search the web for information about Argentina.')
+      .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina news"}}')
+      .mockResolvedValueOnce('YES')
+
+    const result = await runPipeline(adapter as any, {
+      messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
+      tools: TOOLS
+    }, ritos as any, 'test-user', 'test-model', 'busca info sobre Argentina')
+
+    expect(result.content).toHaveLength(1)
+    expect(result.content[0]).toMatchObject({
+      type: 'tool_use',
+      name: 'web_search',
+      input: { query: 'Argentina news' }
+    })
+    expect(result.stop_reason).toBe('tool_use')
+    expect(ritos.saveRito).toHaveBeenCalledTimes(1)
+    expect(ritos.saveRito.mock.calls[0][2]).toEqual(['web_search'])
+  })
 })

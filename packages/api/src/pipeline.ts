@@ -14,6 +14,18 @@ const logger = createLogger('Pipeline')
 const TOOL_TOKEN_THRESHOLD = 4000
 const DEFAULT_NUM_CTX = 8192
 
+const RESPOND_TOOL: AnthropicToolSchema = {
+  name: 'respond',
+  description: 'Give a normal conversational reply to the user when no other tool is needed.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      message: { type: 'string', description: 'The conversational reply text' }
+    },
+    required: ['message']
+  }
+}
+
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
@@ -151,13 +163,23 @@ export async function runPipeline(
     logger.info('tool filtering applied', { toolsIn: request.tools.length, toolsOut: filteredTools.length, selected: filteredTools.map(t => t.name) })
   }
 
+  const toolsWithRespond = [...filteredTools, RESPOND_TOOL]
+
   const t0Reason = Date.now()
-  const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, filteredTools, DEFAULT_NUM_CTX, classification.requires_environment_action)
+  const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, toolsWithRespond, DEFAULT_NUM_CTX, classification.requires_environment_action)
   logger.info('reasonPhase', { ms: Date.now() - t0Reason, preview: reasonText.slice(0, 100) })
 
   const t0Serialize = Date.now()
-  const serialized = await serializePhase(adapter, reasonText, filteredTools, DEFAULT_NUM_CTX)
+  const serialized = await serializePhase(adapter, reasonText, toolsWithRespond, DEFAULT_NUM_CTX)
   logger.info('serializePhase', { ms: Date.now() - t0Serialize, tool: serialized?.tool ?? 'ninguna' })
+
+  if (serialized && serialized.tool === 'respond') {
+    const message = typeof serialized.input.message === 'string'
+      ? serialized.input.message
+      : reasonText
+    logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
+    return buildResponse(model, [{ type: 'text', text: message }], 'end_turn')
+  }
 
   const verifier = new FormVerifier(adapter)
 

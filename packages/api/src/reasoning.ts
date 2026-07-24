@@ -147,9 +147,19 @@ Based on the reasoning above, produce a JSON object representing the tool call. 
 Format: { "tool": "toolName", "input": { ... } }
 JSON response:`
 
+  const toolNames = tools.map(t => t.name)
+  const responseFormat = {
+    type: 'object',
+    properties: {
+      tool: { type: 'string', enum: toolNames },
+      input: { type: 'object' }
+    },
+    required: ['tool', 'input']
+  }
+
   const response = await adapter.complete([
     { role: 'user', content: prompt }
-  ], { temperature: 0, numCtx, think: false, numGpu })
+  ], { temperature: 0, numCtx, think: false, numGpu, responseFormat })
 
   logger.debug('serializePhase raw response', {
     reasonTextPreview: reasonText.slice(0, 300),
