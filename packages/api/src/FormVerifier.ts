@@ -2,8 +2,66 @@ import type { ModelAdapter, ChatMessage } from '@ezio/core'
 import { createLogger } from '@ezio/core'
 import type { AnthropicToolSchema } from './types.js'
 import { extractCompletedSteps, formatPlanState } from './planState.js'
+import type { CompletedStep } from './planState.js'
 
 const logger = createLogger('FormVerifier')
+
+function computeContentOverlapFact(
+  proposal: ToolProposal,
+  completedSteps: CompletedStep[]
+): { found: boolean; targetKey?: string; targetValue?: unknown; previousContentKey?: string; previousContentValue?: string; overlaps?: boolean } {
+  const sameToolSteps = completedSteps.filter(s => s.tool === proposal.name)
+  if (sameToolSteps.length === 0) {
+    return { found: false }
+  }
+
+  const mostRecent = sameToolSteps[sameToolSteps.length - 1]
+
+  const historicalEntries = Object.entries(mostRecent.input)
+  const proposalEntries = Object.entries(proposal.input)
+
+  let targetKey: string | undefined
+  let targetValue: unknown
+  for (const [k, v] of historicalEntries) {
+    for (const [pk, pv] of proposalEntries) {
+      if (k === pk && v === pv) {
+        targetKey = k
+        targetValue = v
+        break
+      }
+    }
+    if (targetKey !== undefined) break
+  }
+
+  if (targetKey === undefined) {
+    return { found: false }
+  }
+
+  let previousContentKey: string | undefined
+  let previousContentValue: string | undefined
+  for (const [k, v] of historicalEntries) {
+    if (k === targetKey) continue
+    if (typeof v !== 'string') continue
+    for (const [pk, pv] of proposalEntries) {
+      if (pk === targetKey) continue
+      if (typeof pv !== 'string') continue
+      previousContentKey = k
+      previousContentValue = v
+      break
+    }
+    if (previousContentKey !== undefined) break
+  }
+
+  if (previousContentKey === undefined) {
+    return { found: true, targetKey, targetValue }
+  }
+
+  const overlaps = typeof proposal.input[previousContentKey] === 'string' &&
+    previousContentValue !== undefined &&
+    (proposal.input[previousContentKey] as string).includes(previousContentValue)
+
+  return { found: true, targetKey, targetValue, previousContentKey, previousContentValue, overlaps }
+}
 
 export interface ToolProposal {
   name: string
@@ -140,7 +198,14 @@ export class FormVerifier {
 
   async checkCoherence(proposal: ToolProposal, lastUserTurn: string, conversationHistory: string, numCtx?: number, messages?: ChatMessage[]): Promise<FormVerifierResult> {
     logger.debug(`checkCoherence: tool=${proposal.name}`)
-    const planStateBlock = messages ? formatPlanState(extractCompletedSteps(messages)) : ''
+    const completedSteps = messages ? extractCompletedSteps(messages) : []
+    const planStateBlock = completedSteps.length > 0 ? formatPlanState(completedSteps) : ''
+    const fact = computeContentOverlapFact(proposal, completedSteps)
+
+    const factBlock = fact.found
+      ? `\nCOMPUTED FACT (verified programmatically, not inferred): a previous step already called ${fact.targetKey}(${fact.targetKey}=${JSON.stringify(fact.targetValue)}) with ${fact.previousContentKey}='${fact.previousContentValue}'. The new proposal's ${fact.previousContentKey} does${fact.overlaps ? '' : ' NOT'} literally contain that previous value.\n\nThis fact alone does not determine whether the proposal is correct — the user may have intended to ACCUMULATE (add to existing content, e.g. notes, logs, descriptions) or to REPLACE/RECOMPUTE (e.g. a counter being incremented, a value being recalculated) the previous value. Read the user's own wording in this turn ('agregar', 'sumar', 'agrégale' suggest accumulation; 'cambiar', 'actualizar a', arithmetic operations suggest replacement) to judge which case applies, and answer accordingly. Do not default to NEEDS_STEP just because the fact above says 'does NOT contain' — only do so if accumulation was the evident intent and it's missing.\n`
+      : ''
+
     const prompt = `User's original request: "${lastUserTurn}"
 
 Conversation so far:
@@ -148,7 +213,7 @@ ${conversationHistory}
 
 (Some previous assistant responses are omitted above and replaced with a placeholder — this is intentional, to avoid biasing this judgment with prior conclusions. Base your answer only on what tool calls were actually executed, shown in the history, and on the user's request below — not on any previous assistant claim that a task was already finished.)
 
-${planStateBlock ? planStateBlock + '\n\n' : ''}Proposed next tool call: ${proposal.name}(${JSON.stringify(proposal.input)})
+${planStateBlock ? planStateBlock + '\n\n' : ''}${factBlock}Proposed next tool call: ${proposal.name}(${JSON.stringify(proposal.input)})
 
 Given what has already happened in this conversation, is this proposed call a reasonable next step toward completing the user's request? It does not need to fully resolve the request by itself — only to be sensible given what's already been done. If the user's request has multiple distinct parts and this proposal correctly addresses the next part that is still missing — even if it's the very first action taken, like creating a file that doesn't exist yet — that is a valid YES, not a rejection.
 
