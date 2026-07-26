@@ -23,6 +23,40 @@ function safePath(sandboxDir: string, inputPath: string): string {
   return resolved
 }
 
+function normalizeForMatch(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+}
+
+function matchMockResult(query: string, mockToolResults: Record<string, string>): string | null {
+  if (query in mockToolResults) return mockToolResults[query]
+
+  const normalizedQuery = normalizeForMatch(query)
+
+  for (const [key, value] of Object.entries(mockToolResults)) {
+    if (normalizeForMatch(key) === normalizedQuery) return value
+  }
+
+  for (const [key, value] of Object.entries(mockToolResults)) {
+    const normalizedKey = normalizeForMatch(key)
+    if (normalizedQuery.includes(normalizedKey) || normalizedKey.includes(normalizedQuery)) {
+      return value
+    }
+  }
+
+  for (const [key, value] of Object.entries(mockToolResults)) {
+    const keyWords = normalizeForMatch(key).split(/\s+/).filter(w => w.length >= 4)
+    if (keyWords.length > 0 && keyWords.every(w => normalizedQuery.includes(w))) {
+      return value
+    }
+  }
+
+  return null
+}
+
 export function executeTool(
   sandboxDir: string,
   toolName: string,
@@ -130,8 +164,9 @@ export function executeTool(
 
     case 'web_search': {
       const query = input.query as string
-      if (mockToolResults && query in mockToolResults) {
-        return mockToolResults[query]
+      if (mockToolResults) {
+        const matched = matchMockResult(query, mockToolResults)
+        if (matched !== null) return matched
       }
       return `Mock web_search result for: ${query}`
     }

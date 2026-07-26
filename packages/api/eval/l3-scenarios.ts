@@ -351,7 +351,9 @@ export const scenariosL3: ScenarioL3[] = [
       {
         mockToolResults: {
           'presidente de Francia actual':
-            'Según la búsqueda: Emmanuel Macron, presidente de Francia'
+            'Según la búsqueda: Emmanuel Macron, presidente de Francia',
+          'current president of France':
+            'According to the search: Emmanuel Macron, president of France'
         },
         userMessage: 'Busca quién es el actual presidente de Francia'
       },
