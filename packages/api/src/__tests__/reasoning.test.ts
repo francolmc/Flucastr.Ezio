@@ -187,5 +187,39 @@ describe('reasoning (via serializePhase)', () => {
       const prompt = call[0][0].content as string
       expect(prompt).toContain('Important: if an earlier assistant turn in this conversation concluded that "no further action was needed"')
     })
+
+    it('con EZIO_DISABLE_LITERALFIDELITY no seteado, prompt contiene literalFidelityNote (requiresEnvironmentAction=false)', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [{ role: 'user', content: 'create combinado.py' }]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false)
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).toContain('when the user\'s message specifies an exact name for a file, path, variable, or identifier')
+    })
+
+    it('con EZIO_DISABLE_LITERALFIDELITY no seteado, prompt contiene literalFidelityNote (requiresEnvironmentAction=true)', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [{ role: 'user', content: 'search for something' }]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, true)
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).toContain('when the user\'s message specifies an exact name for a file, path, variable, or identifier')
+    })
+
+    it('con EZIO_DISABLE_LITERALFIDELITY=true, prompt NO contiene literalFidelityNote', async () => {
+      const originalEnv = process.env.EZIO_DISABLE_LITERALFIDELITY
+      process.env.EZIO_DISABLE_LITERALFIDELITY = 'true'
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [{ role: 'user', content: 'create combinado.py' }]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false)
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).not.toContain('when the user\'s message specifies an exact name for a file, path, variable, or identifier')
+      if (originalEnv !== undefined) {
+        process.env.EZIO_DISABLE_LITERALFIDELITY = originalEnv
+      } else {
+        delete process.env.EZIO_DISABLE_LITERALFIDELITY
+      }
+    })
   })
 })
