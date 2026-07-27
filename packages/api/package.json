@@ -14,6 +14,7 @@
     "eval:l2": "tsx eval/run-l2.ts",
     "eval:l3": "tsx eval/run-l3.ts",
     "eval:l3:diff": "tsx eval/diff-l3.ts",
+    "eval:persona": "tsx eval/stages/run-persona.ts",
     "eval:serialize-fidelity": "tsx eval/run-serialize-fidelity.ts"
   },
   "dependencies": {
