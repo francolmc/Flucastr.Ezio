@@ -3,7 +3,7 @@ import { Classifier, getCurrentDateContext, createLogger } from '@ezio/core'
 import { BM25ToolSelector } from '@ezio/core'
 import { FormVerifier } from './FormVerifier.js'
 import { reasonPhase, serializePhase } from './reasoning.js'
-import { detectContentSignals } from './contentModeDetector.js'
+import { detectContentSignals, correctLiteralIdentifierIfNeeded } from './contentModeDetector.js'
 import type { AnthropicToolSchema } from './types.js'
 import { toInternalTools, backToExternalTools } from './toolMapping.js'
 import { pruneHistory } from './historyPruning.js'
@@ -206,6 +206,15 @@ export async function runPipeline(
 
       if (escalationSerialized) {
         const escalationProposal = { name: escalationSerialized.tool, input: escalationSerialized.input }
+        const correction2 = correctLiteralIdentifierIfNeeded(escalationProposal.name, escalationProposal.input, lastUserTurn)
+        if (correction2.corrected) {
+          logger.info('literalIdentifierCorrection', {
+            tool: escalationProposal.name,
+            original: correction2.originalValue,
+            corrected: correction2.input.path
+          })
+          escalationProposal.input = correction2.input
+        }
         const escalationVerify = await verifier.verify(escalationProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
 
         logger.info('escalation_patron_b', {
@@ -232,6 +241,16 @@ export async function runPipeline(
   }
 
   const proposal = { name: serialized.tool, input: serialized.input }
+  const correction1 = correctLiteralIdentifierIfNeeded(proposal.name, proposal.input, lastUserTurn)
+  if (correction1.corrected) {
+    logger.info('literalIdentifierCorrection', {
+      tool: proposal.name,
+      original: correction1.originalValue,
+      corrected: correction1.input.path
+    })
+    proposal.input = correction1.input
+  }
+
   const t0Verify = Date.now()
   const verifyResult = await verifier.verify(proposal, toolsWithRespond, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
   logger.info('formVerifier', { ms: Date.now() - t0Verify, approved: verifyResult.approved, costLLM: verifyResult.costLLM, reason: verifyResult.reason })
@@ -251,7 +270,7 @@ export async function runPipeline(
     await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed })
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
-    return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: serialized.tool, input: serialized.input }], 'tool_use')
+    return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: proposal.name, input: proposal.input }], 'tool_use')
   }
 
   if (verifyResult.failureType === 'quantity' && verifyResult.quantityDetails?.textFieldKey) {
@@ -329,6 +348,15 @@ Before accepting that conclusion, explicitly check each distinct part of the use
   }
 
   const retryProposal = { name: retrySerialized.tool, input: retrySerialized.input }
+  const correction3 = correctLiteralIdentifierIfNeeded(retryProposal.name, retryProposal.input, lastUserTurn)
+  if (correction3.corrected) {
+    logger.info('literalIdentifierCorrection', {
+      tool: retryProposal.name,
+      original: correction3.originalValue,
+      corrected: correction3.input.path
+    })
+    retryProposal.input = correction3.input
+  }
   const retryVerify = await verifier.verify(retryProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
 
   if (retryVerify.approved) {
@@ -338,7 +366,7 @@ Before accepting that conclusion, explicitly check each distinct part of the use
     const guia = buildProceduralGuia(retryProposal.name, 'retry', verifyResult.failureType)
     await recordPattern(ritos, userId, lastUserTurn, toolsProposed, resultSummary, guia)
     logger.info('ritosSave', { saved: true, toolsProposed })
-    return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retrySerialized.tool, input: retrySerialized.input }], 'tool_use')
+    return buildResponse(model, [{ type: 'tool_use', id: `tool_${randomUUID()}`, name: retryProposal.name, input: retryProposal.input }], 'tool_use')
   }
 
   if (
@@ -362,6 +390,15 @@ Before accepting that conclusion, explicitly check each distinct part of the use
 
     if (escalationSerialized) {
       const escalationProposal = { name: escalationSerialized.tool, input: escalationSerialized.input }
+      const correction4 = correctLiteralIdentifierIfNeeded(escalationProposal.name, escalationProposal.input, lastUserTurn)
+      if (correction4.corrected) {
+        logger.info('literalIdentifierCorrection', {
+          tool: escalationProposal.name,
+          original: correction4.originalValue,
+          corrected: correction4.input.path
+        })
+        escalationProposal.input = correction4.input
+      }
       const escalationVerify = await verifier.verify(escalationProposal, filteredTools, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
 
       logger.info('escalation_patron_a', {
