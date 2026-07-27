@@ -3,6 +3,7 @@ import { Classifier, getCurrentDateContext, createLogger } from '@ezio/core'
 import { BM25ToolSelector } from '@ezio/core'
 import { FormVerifier } from './FormVerifier.js'
 import { reasonPhase, serializePhase } from './reasoning.js'
+import { detectContentSignals } from './contentModeDetector.js'
 import type { AnthropicToolSchema } from './types.js'
 import { toInternalTools, backToExternalTools } from './toolMapping.js'
 import { pruneHistory } from './historyPruning.js'
@@ -116,6 +117,7 @@ export async function runPipeline(
   const startTotal = Date.now()
   const tools = request.tools ?? []
   const system = request.system ?? 'You are a helpful assistant.'
+  const contentSignals = detectContentSignals(lastUserTurn)
 
   const t0Prune = Date.now()
   const pruneResult = await pruneHistory(adapter, request.messages, { numCtx: DEFAULT_NUM_CTX })
@@ -176,7 +178,7 @@ export async function runPipeline(
   const toolsWithRespond = [...filteredTools, RESPOND_TOOL]
 
   const t0Reason = Date.now()
-  const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, toolsWithRespond, DEFAULT_NUM_CTX, classification.requires_environment_action)
+  const reasonText = await reasonPhase(adapter, effectiveSystem, pruneResult.messages, toolsWithRespond, DEFAULT_NUM_CTX, classification.requires_environment_action, undefined, contentSignals)
   logger.info('reasonPhase', { ms: Date.now() - t0Reason, preview: reasonText.slice(0, 600) })
 
   const t0Serialize = Date.now()
@@ -197,7 +199,8 @@ export async function runPipeline(
         filteredTools,
         DEFAULT_NUM_CTX,
         classification.requires_environment_action,
-        escalationNumGpu
+        escalationNumGpu,
+        contentSignals
       )
       const escalationSerialized = await serializePhase(escalationAdapter, escalationReasonText, filteredTools, DEFAULT_NUM_CTX)
 
@@ -270,7 +273,9 @@ Expand this exact content with more detail, explanation, and examples until it r
       pruneResult.messages,
       filteredTools,
       DEFAULT_NUM_CTX,
-      classification.requires_environment_action
+      classification.requires_environment_action,
+      undefined,
+      contentSignals
     )
 
     const retryProposal = {
@@ -311,7 +316,9 @@ Before accepting that conclusion, explicitly check each distinct part of the use
     pruneResult.messages,
     filteredTools,
     DEFAULT_NUM_CTX,
-    classification.requires_environment_action
+    classification.requires_environment_action,
+    undefined,
+    contentSignals
   )
 
   const retrySerialized = await serializePhase(adapter, retryReasonText, filteredTools, DEFAULT_NUM_CTX)
@@ -348,7 +355,8 @@ Before accepting that conclusion, explicitly check each distinct part of the use
       filteredTools,
       DEFAULT_NUM_CTX,
       classification.requires_environment_action,
-      escalationNumGpu
+      escalationNumGpu,
+      contentSignals
     )
     const escalationSerialized = await serializePhase(escalationAdapter, escalationReasonText, filteredTools, DEFAULT_NUM_CTX)
 

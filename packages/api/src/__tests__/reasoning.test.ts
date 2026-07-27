@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ModelAdapter } from '@ezio/core'
 import { serializePhase, reasonPhase } from '../reasoning.js'
 import type { AnthropicToolSchema } from '../types.js'
@@ -105,6 +105,12 @@ describe('reasoning (via serializePhase)', () => {
   })
 
   describe('reasonPhase', () => {
+    afterEach(() => {
+      delete process.env.EZIO_DISABLE_ANTISC
+      delete process.env.EZIO_DISABLE_LITERALFIDELITY
+      delete process.env.EZIO_DISABLE_CONTENTTRANSFORM
+    })
+
     it('el prompt enviado al adapter incluye descripción de tools y historial', async () => {
       vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
       const messages = [{ role: 'user' as const, content: 'list files' }]
@@ -188,38 +194,65 @@ describe('reasoning (via serializePhase)', () => {
       expect(prompt).toContain('Important: if an earlier assistant turn in this conversation concluded that "no further action was needed"')
     })
 
-    it('con EZIO_DISABLE_LITERALFIDELITY no seteado, prompt contiene literalFidelityNote (requiresEnvironmentAction=false)', async () => {
+    it('con contentSignals.hasLiteralIdentifier=true, prompt contiene nota de identificador literal', async () => {
       vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
       const messages = [{ role: 'user', content: 'create combinado.py' }]
-      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false)
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false, undefined, { hasLiteralIdentifier: true, needsContentTransform: false })
       const call = mockAdapter.complete.mock.calls[0]
       const prompt = call[0][0].content as string
       expect(prompt).toContain('when the user\'s message specifies an exact name for a file, path, variable, or identifier')
     })
 
-    it('con EZIO_DISABLE_LITERALFIDELITY no seteado, prompt contiene literalFidelityNote (requiresEnvironmentAction=true)', async () => {
+    it('con contentSignals.hasLiteralIdentifier=false, prompt NO contiene nota de identificador literal', async () => {
       vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
       const messages = [{ role: 'user', content: 'search for something' }]
-      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, true)
-      const call = mockAdapter.complete.mock.calls[0]
-      const prompt = call[0][0].content as string
-      expect(prompt).toContain('when the user\'s message specifies an exact name for a file, path, variable, or identifier')
-    })
-
-    it('con EZIO_DISABLE_LITERALFIDELITY=true, prompt NO contiene literalFidelityNote', async () => {
-      const originalEnv = process.env.EZIO_DISABLE_LITERALFIDELITY
-      process.env.EZIO_DISABLE_LITERALFIDELITY = 'true'
-      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
-      const messages = [{ role: 'user', content: 'create combinado.py' }]
-      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false)
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, true, undefined, { hasLiteralIdentifier: false, needsContentTransform: false })
       const call = mockAdapter.complete.mock.calls[0]
       const prompt = call[0][0].content as string
       expect(prompt).not.toContain('when the user\'s message specifies an exact name for a file, path, variable, or identifier')
-      if (originalEnv !== undefined) {
-        process.env.EZIO_DISABLE_LITERALFIDELITY = originalEnv
-      } else {
-        delete process.env.EZIO_DISABLE_LITERALFIDELITY
-      }
+    })
+
+    it('con contentSignals.needsContentTransform=true, prompt contiene nota de transformación de contenido', async () => {
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [{ role: 'user', content: 'increméntalo en 1' }]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false, undefined, { hasLiteralIdentifier: false, needsContentTransform: true })
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).toContain('RESULT of combining, concatenating, or computing')
+    })
+
+    it('con EZIO_DISABLE_ANTISC=true, prompt NO contiene anti-self-conditioning note', async () => {
+      process.env.EZIO_DISABLE_ANTISC = 'true'
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [
+        { role: 'user', content: 'create a file' },
+        { role: 'assistant', content: 'The task has already been completed, no further action is required.' },
+        { role: 'user', content: 'add a description to the file' }
+      ]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false)
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).not.toContain('Important: if an earlier assistant turn in this conversation concluded that "no further action was needed"')
+    })
+
+    it('con EZIO_DISABLE_LITERALFIDELITY=true, prompt NO contiene nota de identificador literal aunque hasLiteralIdentifier sea true', async () => {
+      process.env.EZIO_DISABLE_LITERALFIDELITY = 'true'
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [{ role: 'user', content: 'create combinado.py' }]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false, undefined, { hasLiteralIdentifier: true, needsContentTransform: false })
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).not.toContain('when the user\'s message specifies an exact name for a file, path, variable, or identifier')
+    })
+
+    it('con EZIO_DISABLE_CONTENTTRANSFORM=true, prompt NO contiene nota de transformación aunque needsContentTransform sea true', async () => {
+      process.env.EZIO_DISABLE_CONTENTTRANSFORM = 'true'
+      vi.mocked(mockAdapter.complete).mockResolvedValue('NO_TOOL')
+      const messages = [{ role: 'user', content: 'increméntalo en 1' }]
+      await reasonPhase(mockAdapter, 'You are helpful', messages, mockTools, undefined, false, undefined, { hasLiteralIdentifier: false, needsContentTransform: true })
+      const call = mockAdapter.complete.mock.calls[0]
+      const prompt = call[0][0].content as string
+      expect(prompt).not.toContain('RESULT of combining, concatenating, or computing')
     })
   })
 })

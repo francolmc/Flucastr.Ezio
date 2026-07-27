@@ -3,6 +3,8 @@
 import { scenariosL3 } from './l3-scenarios.js'
 import { createSandbox, cleanupSandbox, executeTool } from './sandbox.js'
 import type { MessagesResponse } from '../src/pipeline.js'
+import fs from 'node:fs'
+import path from 'node:path'
 
 const API_URL = process.env.EZIO_API_URL ?? 'http://localhost:4141/v1/messages'
 const N_RUNS = 5
@@ -207,6 +209,28 @@ async function main() {
   console.log(`Fully passing (pass^5): ${passAllCount}`)
   console.log(`Unstable: ${results.filter(r => r.unstable).length}`)
   console.log(`Failing: ${results.filter(r => !r.unstable && !r.allPassed).length}`)
+
+  const resultsDir = path.join(process.cwd(), 'eval', 'results')
+  if (!fs.existsSync(resultsDir)) {
+    fs.mkdirSync(resultsDir, { recursive: true })
+  }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const outputPath = path.join(resultsDir, `l3-${timestamp}.json`)
+
+  const jsonOutput = {
+    timestamp: new Date().toISOString(),
+    scenarios: Object.fromEntries(
+      results.map(r => {
+        const status = r.allPassed ? 'PASS' : r.unstable ? 'UNSTABLE' : 'FAIL'
+        return [r.id, { result: status, passedRuns: r.runs.filter(run => run.pass).length, totalRuns: r.n }]
+      })
+    ),
+    passRate: `${passAllCount}/${total}`
+  }
+
+  fs.writeFileSync(outputPath, JSON.stringify(jsonOutput, null, 2), 'utf-8')
+  console.log(`\nResults saved to: ${outputPath}`)
 }
 
 main().catch(err => {
