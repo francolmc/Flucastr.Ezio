@@ -7,10 +7,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const API_URL = process.env.EZIO_API_URL ?? 'http://localhost:4141/v1/messages'
-const N_RUNS = 5
+const N_RUNS = parseInt(process.env.EZIO_N_RUNS ?? '5', 10)
 const DELAY_MS = 200
 
 const SCENARIO_FILTER = process.env.SCENARIO_FILTER?.split(',').map(s => s.trim())
+
+const ONLY_FLAG = process.argv.find(arg => arg.startsWith('--only='))?.split('=')[1]
 
 interface ToolUseBlock {
   type: 'tool_use'
@@ -166,9 +168,11 @@ async function main() {
 
   const results: ScenarioResult[] = []
 
-  const scenariosToRun = SCENARIO_FILTER
-    ? scenariosL3.filter(s => SCENARIO_FILTER.includes(s.id))
-    : scenariosL3
+  const scenariosToRun = ONLY_FLAG
+    ? scenariosL3.filter(s => s.id === ONLY_FLAG)
+    : SCENARIO_FILTER
+      ? scenariosL3.filter(s => SCENARIO_FILTER.includes(s.id))
+      : scenariosL3
 
   for (const scenario of scenariosToRun) {
     const result = await runScenario(scenario)

@@ -39,11 +39,17 @@ Important: the content you are about to write is NOT simply a literal copy of th
 ]
 
 export class PromptComposer {
-  compose(signals: DeterministicSignals): string {
-    return SECTIONS
+  composeWithIds(signals: DeterministicSignals): { text: string; includedIds: string[] } {
+    const included = SECTIONS
       .filter(s => s.condition(signals))
       .sort((a, b) => a.priority - b.priority)
-      .map(s => s.template)
-      .join('')
+    return {
+      text: included.map(s => s.template).join(''),
+      includedIds: included.map(s => s.id)
+    }
+  }
+
+  compose(signals: DeterministicSignals): string {
+    return this.composeWithIds(signals).text
   }
 }

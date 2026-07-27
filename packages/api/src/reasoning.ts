@@ -4,6 +4,7 @@ import { extractCompletedSteps, formatPlanState } from './planState.js'
 import { createLogger } from '@ezio/core'
 import { detectMentionedTool } from './toolMention.js'
 import { PromptComposer } from './PromptComposer.js'
+import type { DeterministicSignals } from './PromptComposer.js'
 import type { ContentSignals } from './contentModeDetector.js'
 
 const logger = createLogger('reasoning')
@@ -34,10 +35,16 @@ export async function reasonPhase(
   const planState = formatPlanState(extractCompletedSteps(messages))
   const planStateBlock = planState ? `${planState}\n\n` : ''
 
-  const composedNotes = promptComposer.compose({
+  const signals: DeterministicSignals = {
     requiresEnvironmentAction: requiresEnvironmentAction === true,
     hasLiteralIdentifier: contentSignals?.hasLiteralIdentifier ?? false,
     needsContentTransform: contentSignals?.needsContentTransform ?? false
+  }
+  const { text: composedNotes, includedIds } = promptComposer.composeWithIds(signals)
+
+  logger.debug('reasonPhase composedNotes', {
+    contentSignals: signals,
+    includedIds
   })
 
   const actionInstruction = requiresEnvironmentAction === true
@@ -66,9 +73,11 @@ ${messages.map(m => `${m.role}: ${m.content}`).join('\n')}
 
 ${actionInstruction}`
 
-  return adapter.complete([
+  const result = await adapter.complete([
     { role: 'user', content: prompt }
   ], { temperature: 0, numCtx, think: false, numGpu })
+  logger.debug('reasonPhase raw output completo', { result })
+  return result
 }
 
 function parseJson(response: string): { tool: string; input: Record<string, unknown> } | null {
