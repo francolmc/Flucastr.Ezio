@@ -260,19 +260,19 @@ export async function runPipeline(
     proposal.input = correction1.input
   }
 
+  if (proposal.name === 'respond') {
+    const message = typeof proposal.input.message === 'string'
+      ? proposal.input.message
+      : reasonText
+    logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
+    return buildResponse(model, [{ type: 'text', text: message }], 'end_turn')
+  }
+
   const t0Verify = Date.now()
   const verifyResult = await verifier.verify(proposal, toolsWithRespond, lastUserTurn, conversationHistory, DEFAULT_NUM_CTX, pruneResult.messages)
   logger.info('formVerifier', { ms: Date.now() - t0Verify, approved: verifyResult.approved, costLLM: verifyResult.costLLM, reason: verifyResult.reason })
 
   if (verifyResult.approved) {
-    if (proposal.name === 'respond') {
-      const message = typeof proposal.input.message === 'string'
-        ? proposal.input.message
-        : reasonText
-      logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
-      return buildResponse(model, [{ type: 'text', text: message }], 'end_turn')
-    }
-
     const toolsProposed = [proposal.name]
     const resultSummary = `Propuso ${proposal.name} (aprobado directo)`
     const guia = buildProceduralGuia(proposal.name, 'direct')
