@@ -66,6 +66,7 @@ export interface MessagesRequest {
   tools?: AnthropicToolSchema[]
   max_tokens?: number
   stream?: boolean
+  _testOverrideClassificationLevel?: 'simple' | 'moderate' | 'complex'
 }
 
 export interface MessagesResponse {
@@ -151,9 +152,16 @@ export async function runPipeline(
     getCurrentDateContext(),
     DEFAULT_NUM_CTX
   )
-  logger.info('classifier', { level: classification.level, ms: Date.now() - t0 })
+  logger.info('classifier', {
+    level: request._testOverrideClassificationLevel ?? classification.level,
+    realLevel: classification.level,
+    overridden: request._testOverrideClassificationLevel !== undefined,
+    ms: Date.now() - t0
+  })
 
-  if (classification.level === 'simple') {
+  const effectiveLevel = request._testOverrideClassificationLevel ?? classification.level
+
+  if (effectiveLevel === 'simple') {
     const t0 = Date.now()
     const response = await adapter.complete([
       { role: 'system', content: effectiveSystem },
