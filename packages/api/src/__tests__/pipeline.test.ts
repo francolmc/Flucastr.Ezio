@@ -121,6 +121,7 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('I should use read_file instead.')
       .mockResolvedValueOnce('{"tool":"read_file","input":{"path":"notes.txt"}}')
       .mockResolvedValueOnce('NO')
+      .mockResolvedValueOnce('Could not complete this action right now.')
 
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
@@ -143,6 +144,7 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('I should check each part of the request explicitly.')
       .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina news"}}')
       .mockResolvedValueOnce("Still done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('Task is already done, nothing more to do.')
 
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
@@ -167,6 +169,7 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('I should use web_search again.')
       .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test2"}}')
       .mockResolvedValueOnce('NO\nCATEGORY: NEEDS_STEP')
+      .mockResolvedValueOnce('Could not complete this action right now.')
 
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'do a search' }],
@@ -189,6 +192,7 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('I should use web_search again.')
       .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina news"}}')
       .mockResolvedValueOnce("The search was already done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('Task is already done, nothing more to do.')
 
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
@@ -211,6 +215,7 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('I checked each part explicitly.')
       .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"Argentina news"}}')
       .mockResolvedValueOnce("Still complete.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('Task is already done, nothing more to do.')
 
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
@@ -290,6 +295,7 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('I should use read_file instead.')
       .mockResolvedValueOnce('{"tool":"read_file","input":{"path":"notes.txt"}}')
       .mockResolvedValueOnce('NO')
+      .mockResolvedValueOnce('Could not complete this action right now.')
 
     await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'busca info sobre Argentina' }],
@@ -425,6 +431,7 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('I checked each part explicitly.')
       .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test2"}}')
       .mockResolvedValueOnce("Still done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('Task is already done, nothing more to do.')
 
     const result = await runPipeline(adapter as any, {
       messages: [{ role: 'user', content: 'do a search' }],
@@ -433,7 +440,13 @@ describe('runPipeline', () => {
 
     expect(result.stop_reason).toBe('end_turn')
     expect(result.content[0]).toMatchObject({ type: 'text' })
-    expect(result.content[0].text).toContain('Ya tengo lo que necesitaba')
+    expect(result.content[0].text).toBe('Task is already done, nothing more to do.')
+
+    const fallbackCall = adapter.complete.mock.calls[adapter.complete.mock.calls.length - 1]
+    const fallbackMessages = fallbackCall[0] as Array<{ role: string; content: string }>
+    expect(fallbackMessages[0].role).toBe('user')
+    expect(fallbackMessages[0].content).toContain('You are a helpful assistant.')
+    expect(fallbackMessages[0].content).toContain('Context:')
   })
 
   it('patron_a: doble rechazo coherence_redundant, escalationAdapter propone tool distinta aprobada → tool_use', async () => {
@@ -480,6 +493,7 @@ describe('runPipeline', () => {
       .mockResolvedValueOnce('I checked each part explicitly.')
       .mockResolvedValueOnce('{"tool":"web_search","input":{"query":"test2"}}')
       .mockResolvedValueOnce("Still done.\nNO\nCATEGORY: REDUNDANT")
+      .mockResolvedValueOnce('Task is already done, nothing more to do.')
     escalationAdapter.complete
       .mockResolvedValueOnce('I should use read_file.')
       .mockResolvedValueOnce('NO_TOOL')
@@ -491,7 +505,13 @@ describe('runPipeline', () => {
 
     expect(result.stop_reason).toBe('end_turn')
     expect(result.content[0]).toMatchObject({ type: 'text' })
-    expect(result.content[0].text).toContain('Ya tengo lo que necesitaba')
+    expect(result.content[0].text).toBe('Task is already done, nothing more to do.')
+
+    const fallbackCall = adapter.complete.mock.calls[adapter.complete.mock.calls.length - 1]
+    const fallbackMessages = fallbackCall[0] as Array<{ role: string; content: string }>
+    expect(fallbackMessages[0].role).toBe('user')
+    expect(fallbackMessages[0].content).toContain('You are a helpful assistant.')
+    expect(fallbackMessages[0].content).toContain('Context:')
   })
 
   it('ritosLookupEnabled: false desactiva lookupPattern pero recordPattern sigue ejecutandose', async () => {

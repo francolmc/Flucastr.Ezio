@@ -7,6 +7,7 @@ import { detectContentSignals, correctLiteralIdentifierIfNeeded } from './conten
 import type { AnthropicToolSchema } from './types.js'
 import { toInternalTools, backToExternalTools } from './toolMapping.js'
 import { pruneHistory } from './historyPruning.js'
+import { generateNoActionNeededMessage, generateCouldNotCompleteMessage } from './fallbackMessages.js'
 import { lookupPattern, recordPattern } from './ritosCache.js'
 import { randomUUID } from 'node:crypto'
 
@@ -422,16 +423,13 @@ Before accepting that conclusion, explicitly check each distinct part of the use
 
   if (retryVerify.failureType === 'coherence_redundant') {
     logger.warn('retry rechazado con coherence_redundant, completando sin accion', { reason: retryVerify.reason })
-    const text = `Ya tengo lo que necesitaba de los pasos anteriores — no hace falta otra acción. La tarea está resuelta.`
+    const text = await generateNoActionNeededMessage(adapter, effectiveSystem, DEFAULT_NUM_CTX)
     logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
     return buildResponse(model, [{ type: 'text', text }], 'end_turn')
   }
 
   logger.warn('retry rechazado con needs_step o sin clasificacion, degradando a texto', { reason: retryVerify.reason, suggestion: retryVerify.suggestion })
-  const suggestionText = retryVerify.suggestion
-    ? ` Para completar la tarea, considera: ${retryVerify.suggestion}`
-    : ''
-  const text = `No se pudo proponer una herramienta válida para completar la tarea.${suggestionText} Detalle: ${retryVerify.reason}`
+  const text = await generateCouldNotCompleteMessage(adapter, effectiveSystem, retryVerify.reason, retryVerify.suggestion, DEFAULT_NUM_CTX)
   logger.info('pipeline completo', { msTotal: Date.now() - startTotal })
   return buildResponse(model, [{ type: 'text', text }], 'end_turn')
 }
