@@ -17,6 +17,7 @@
     "eval:persona": "tsx eval/stages/run-persona.ts",
     "eval:behavior": "tsx eval/stages/run-behavior.ts",
     "eval:style": "tsx eval/stages/run-style.ts",
+    "eval:compression": "tsx eval/stages/run-compression.ts",
     "eval:serialize-fidelity": "tsx eval/run-serialize-fidelity.ts"
   },
   "dependencies": {
